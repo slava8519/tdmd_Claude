@@ -19,8 +19,14 @@ target_link_libraries(test_smoke PRIVATE tdmd::core)
 add_test(NAME test_smoke COMMAND test_smoke)
 
 # ---- Unit tests with GoogleTest ----
+set(TDMD_TEST_DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/data")
+
 add_executable(tdmd_unit_tests
   unit/test_math.cpp
+  unit/test_lammps_data_reader.cpp
 )
-target_link_libraries(tdmd_unit_tests PRIVATE tdmd::core GTest::gtest_main)
+target_link_libraries(tdmd_unit_tests PRIVATE tdmd::core tdmd::io GTest::gtest_main)
+target_compile_definitions(tdmd_unit_tests PRIVATE
+  TDMD_TEST_DATA_DIR="${TDMD_TEST_DATA_DIR}"
+)
 gtest_discover_tests(tdmd_unit_tests)
