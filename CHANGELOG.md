@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-08
+
+### Added
+- `scheduler/zone.hpp` — Zone struct with ZoneState enum, state machine transitions.
+- `domain/ZonePartition` — 1D zone partition along X-axis with atom-zone assignment.
+- `scheduler/SequentialScheduler` — sequential zone walker for M3 (all zones same timestep).
+- Zone neighbor mapping: precomputed per r_list for dependency checks.
+- 8 new tests: zone state machine (3), zone partition (3), scheduler validation (2).
+
+### Notes
+- **M3 complete.** All exit criteria met. 54 tests passing.
+- Zone-walked MD produces bit-identical results to M2 global compute.
+- Next: M4 (TD scheduler with full pipeline).
+
 ## [0.2.0] - 2026-04-07
 
 ### Added

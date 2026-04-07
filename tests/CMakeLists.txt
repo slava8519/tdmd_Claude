@@ -31,8 +31,11 @@ add_executable(tdmd_unit_tests
   unit/test_eam.cpp
   unit/test_lammps_ab.cpp
   unit/test_nve_drift.cpp
+  unit/test_zone_state_machine.cpp
+  unit/test_zone_partition.cpp
+  unit/test_sequential_scheduler.cpp
 )
-target_link_libraries(tdmd_unit_tests PRIVATE tdmd::core tdmd::io tdmd::domain tdmd::neighbors tdmd::potentials tdmd::integrator GTest::gtest_main)
+target_link_libraries(tdmd_unit_tests PRIVATE tdmd::core tdmd::io tdmd::domain tdmd::neighbors tdmd::potentials tdmd::integrator tdmd::scheduler GTest::gtest_main)
 target_compile_definitions(tdmd_unit_tests PRIVATE
   TDMD_TEST_DATA_DIR="${TDMD_TEST_DATA_DIR}"
 )

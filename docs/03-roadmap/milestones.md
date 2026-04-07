@@ -21,8 +21,8 @@
 |---|---|---|---|
 | M0 | Foundation & infra | 2 weeks | ✅ |
 | M1 | Reference MD (CPU, single-thread) | 4 weeks | ✅ |
-| M2 | GPU port (single GPU) | 4 weeks | ⬜ |
-| M3 | Zone decomposition (in-process) | 3 weeks | ⬜ |
+| M2 | GPU port (single GPU) | 4 weeks | ✅ |
+| M3 | Zone decomposition (in-process) | 3 weeks | ✅ |
 | M4 | TD scheduler (full pipeline, in-process) | 5 weeks | ⬜ |
 | M5 | MPI ring parallelization | 6 weeks | ⬜ |
 | M6 | 2D time × space parallelism | 4 weeks | ⬜ |
