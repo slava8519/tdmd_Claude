@@ -76,7 +76,8 @@ log.cite
 *.dump
 *.lammpstrj
 *.restart
-core
+# Core dump files (not src/core/)
+/core
 core.*
 hs_err_pid*
 
