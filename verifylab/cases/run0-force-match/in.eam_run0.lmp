@@ -1,0 +1,16 @@
+# LAMMPS input: run 0 with EAM on 256-atom Cu FCC.
+# Outputs per-atom forces for A/B comparison with TDMD.
+units           metal
+atom_style      atomic
+boundary        p p p
+
+read_data       cu_fcc_256.data
+
+pair_style      eam/alloy
+pair_coeff      * * Cu_mishin1.eam.alloy Cu
+
+neighbor        1.0 bin
+neigh_modify    every 1 delay 0 check yes
+
+run             0
+write_dump      all custom forces_eam.dump id type x y z fx fy fz modify sort id format float %20.15g

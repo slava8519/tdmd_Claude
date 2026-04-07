@@ -1,0 +1,16 @@
+# LAMMPS input: run 0 with Morse on 256-atom Cu FCC.
+# Cutoff 6.0 A (< L/2 = 7.23) for correct minimum image.
+units           metal
+atom_style      atomic
+boundary        p p p
+
+read_data       cu_fcc_256.data
+
+pair_style      morse 6.0
+pair_coeff      1 1 0.3429 1.3588 2.866
+
+neighbor        1.0 bin
+neigh_modify    every 1 delay 0 check yes
+
+run             0
+write_dump      all custom forces_morse.dump id type x y z fx fy fz modify sort id format float %20.15g
