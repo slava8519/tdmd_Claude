@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-04-07
+
+### Added
+- `core/math.hpp` — Vec3 arithmetic, minimum_image, wrap_position.
+- `core/constants.hpp` — Boltzmann, mvv2e in LAMMPS metal units.
+- `io/LammpsDataReader` — parser for LAMMPS data files (atomic style, ortho box).
+- `domain/CellList` — O(N) cell list for neighbor search acceleration.
+- `neighbors/NeighborList` — Verlet list with skin (half-list, CPU).
+- `potentials/MorsePair` — Morse pair potential with energy and force-over-distance.
+- `potentials/force_compute` — pair force evaluation with Newton 3rd law.
+- `integrator/VelocityVerlet` — velocity-Verlet NVE integrator in metal units.
+- `drivers/tdmd_standalone` — full CLI for end-to-end MD simulation.
+- GoogleTest (FetchContent), 25 unit tests covering all modules.
+- 32-atom Cu FCC test data file.
+
+### Notes
+- M1 in progress: Morse pair + NVE working. EAM and LAMMPS A/B validation remaining.
+- Energy conservation verified: drift < 1e-4 over 10k steps.
+- Force direction fix: LAMMPS convention (delta = r_i - r_j).
+
 ## [0.0.1] - 2026-04-07
 
 ### Added
