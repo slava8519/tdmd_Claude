@@ -29,7 +29,8 @@ real compute_pair_forces(SystemState& state,
 
     for (i32 k = 0; k < cnt; ++k) {
       const auto j = static_cast<std::size_t>(nbrs[k]);
-      Vec3 delta = state.positions[j] - pi;
+      // LAMMPS convention: delta = r_i - r_j
+      Vec3 delta = pi - state.positions[j];
       delta = minimum_image(delta, box_size, periodic);
       const real r2 = length_sq(delta);
 

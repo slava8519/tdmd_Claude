@@ -96,20 +96,24 @@ TEST(Morse, TwoAtomForceCompute) {
 
   real pe = compute_pair_forces(state, nlist, pot);
 
-  // Distance = 3.0 A.
+  // Distance = 3.0 A (> r0=2.866, so atoms attract).
   real r = 3.0;
   real expected_energy = morse_energy(r);
   EXPECT_NEAR(pe, expected_energy, 1e-12);
 
-  // Force on atom 0 should be in +x direction (atoms repel at r < r0... no,
-  // r=3.0 > r0=2.866, so they attract -> F on atom 0 points toward atom 1 = +x).
-  real F = morse_force(r);  // -dU/dr, positive means attractive (pointing from 0 to 1)
-  EXPECT_NEAR(state.forces[0].x, F, 1e-12);
+  // LAMMPS convention: delta = r_i - r_j, fpair = -dU/dr / r.
+  // Force on atom 0: F = fpair * delta = (-dU/dr / r) * (r0 - r1).
+  // Atom 0 at x=5, atom 1 at x=8: delta_x = -3.
+  // At r > r0, dU/dr > 0, so fpair < 0.
+  // F_0x = fpair * (-3) = positive -> toward atom 1. Correct: attractive.
+  real dudr = -morse_force(r);  // dU/dr (positive at r > r0)
+  real expected_f0x = dudr;     // = (-dU/dr / r) * (5 - 8) = (-dudr/3)*(-3)
+  EXPECT_NEAR(state.forces[0].x, expected_f0x, 1e-12);
   EXPECT_NEAR(state.forces[0].y, 0.0, 1e-14);
   EXPECT_NEAR(state.forces[0].z, 0.0, 1e-14);
 
   // Newton 3rd: force on atom 1 = -force on atom 0.
-  EXPECT_NEAR(state.forces[1].x, -F, 1e-12);
+  EXPECT_NEAR(state.forces[1].x, -expected_f0x, 1e-12);
   EXPECT_NEAR(state.forces[1].y, 0.0, 1e-14);
   EXPECT_NEAR(state.forces[1].z, 0.0, 1e-14);
 }

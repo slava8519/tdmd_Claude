@@ -27,8 +27,9 @@ add_executable(tdmd_unit_tests
   unit/test_cell_list.cpp
   unit/test_neighbor_list.cpp
   unit/test_morse.cpp
+  unit/test_velocity_verlet.cpp
 )
-target_link_libraries(tdmd_unit_tests PRIVATE tdmd::core tdmd::io tdmd::domain tdmd::neighbors tdmd::potentials GTest::gtest_main)
+target_link_libraries(tdmd_unit_tests PRIVATE tdmd::core tdmd::io tdmd::domain tdmd::neighbors tdmd::potentials tdmd::integrator GTest::gtest_main)
 target_compile_definitions(tdmd_unit_tests PRIVATE
   TDMD_TEST_DATA_DIR="${TDMD_TEST_DATA_DIR}"
 )
