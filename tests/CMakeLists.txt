@@ -25,8 +25,9 @@ add_executable(tdmd_unit_tests
   unit/test_math.cpp
   unit/test_lammps_data_reader.cpp
   unit/test_cell_list.cpp
+  unit/test_neighbor_list.cpp
 )
-target_link_libraries(tdmd_unit_tests PRIVATE tdmd::core tdmd::io tdmd::domain GTest::gtest_main)
+target_link_libraries(tdmd_unit_tests PRIVATE tdmd::core tdmd::io tdmd::domain tdmd::neighbors GTest::gtest_main)
 target_compile_definitions(tdmd_unit_tests PRIVATE
   TDMD_TEST_DATA_DIR="${TDMD_TEST_DATA_DIR}"
 )
