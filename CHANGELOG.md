@@ -22,10 +22,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GoogleTest (FetchContent), 25 unit tests covering all modules.
 - 32-atom Cu FCC test data file.
 
+- `potentials/EamAlloy` — EAM/alloy potential with setfl reader and 3-pass force compute.
+- `io/dump_reader` — LAMMPS custom dump file reader for A/B comparison.
+- LAMMPS A/B validation: run-0 force match for Morse and EAM (< 1e-6 FP64).
+- NVE drift test: 256 atoms, 50k steps, |dE/E| < 1e-4.
+- `tools/gen_fcc_data.py` — FCC lattice generator.
+- 31 unit tests (GoogleTest).
+
 ### Notes
-- M1 in progress: Morse pair + NVE working. EAM and LAMMPS A/B validation remaining.
-- Energy conservation verified: drift < 1e-4 over 10k steps.
-- Force direction fix: LAMMPS convention (delta = r_i - r_j).
+- **M1 complete.** All exit criteria met.
+- Force convention: LAMMPS-compatible (delta = r_i - r_j).
+- Next: M2 (GPU port).
 
 ## [0.0.1] - 2026-04-07
 
