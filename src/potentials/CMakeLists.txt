@@ -1,5 +1,10 @@
 # potentials module — pair and many-body force evaluation
-add_library(tdmd_potentials STATIC force_compute.cpp eam_alloy.cpp)
+if(TDMD_ENABLE_CUDA)
+  add_library(tdmd_potentials STATIC force_compute.cpp eam_alloy.cpp device_morse.cu device_eam.cu)
+  set_target_properties(tdmd_potentials PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+else()
+  add_library(tdmd_potentials STATIC force_compute.cpp eam_alloy.cpp)
+endif()
 target_include_directories(tdmd_potentials PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(tdmd_potentials PUBLIC tdmd::core tdmd::neighbors)
 add_library(tdmd::potentials ALIAS tdmd_potentials)

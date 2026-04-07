@@ -1,5 +1,10 @@
 # domain module — cell list, zone partitioning
-add_library(tdmd_domain STATIC cell_list.cpp)
+if(TDMD_ENABLE_CUDA)
+  add_library(tdmd_domain STATIC cell_list.cpp device_cell_list.cu)
+  set_target_properties(tdmd_domain PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+else()
+  add_library(tdmd_domain STATIC cell_list.cpp)
+endif()
 target_include_directories(tdmd_domain PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(tdmd_domain PUBLIC tdmd::core)
 add_library(tdmd::domain ALIAS tdmd_domain)

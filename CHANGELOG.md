@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-04-07
+
+### Added
+- `core/DeviceBuffer<T>` — RAII CUDA device memory wrapper (move-only).
+- `core/DeviceSystemState` — GPU-resident SoA mirror of SystemState with upload/download.
+- `domain/DeviceCellList` — GPU cell list via counting sort + prefix sum.
+- `neighbors/DeviceNeighborList` — GPU full neighbor list (lock-free force scatter).
+- `potentials/device_morse` — GPU Morse pair force kernel.
+- `potentials/device_eam` — GPU EAM/alloy 3-pass force computation (density, embedding, force).
+- `integrator/device_velocity_verlet` — GPU velocity-Verlet half-kick and drift kernels.
+- `cmake/CUDAConfig.cmake` — CUDA build config (sm_89 native + sm_90 PTX for Blackwell JIT).
+- 15 CUDA unit tests covering all GPU modules.
+- GPU LAMMPS A/B validation: Morse and EAM run-0 force match < 1e-6.
+- GPU NVE conservation: 50k steps, |dE/E| < 1e-4.
+
+### Changed
+- `EamAlloy` — added public accessors for spline tables (GPU upload support).
+- Build system: `-DTDMD_ENABLE_CUDA=ON` activates CUDA compilation.
+
+### Notes
+- **M2 complete.** All exit criteria met. 46 tests passing (31 CPU + 15 GPU).
+- Next: M3 (Time Decomposition scheduler).
+
 ## [0.1.0] - 2026-04-07
 
 ### Added

@@ -1,5 +1,10 @@
 # neighbors module — Verlet list with skin
-add_library(tdmd_neighbors STATIC neighbor_list.cpp)
+if(TDMD_ENABLE_CUDA)
+  add_library(tdmd_neighbors STATIC neighbor_list.cpp device_neighbor_list.cu)
+  set_target_properties(tdmd_neighbors PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+else()
+  add_library(tdmd_neighbors STATIC neighbor_list.cpp)
+endif()
 target_include_directories(tdmd_neighbors PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(tdmd_neighbors PUBLIC tdmd::core tdmd::domain)
 add_library(tdmd::neighbors ALIAS tdmd_neighbors)

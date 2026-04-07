@@ -37,3 +37,27 @@ target_compile_definitions(tdmd_unit_tests PRIVATE
   TDMD_TEST_DATA_DIR="${TDMD_TEST_DATA_DIR}"
 )
 gtest_discover_tests(tdmd_unit_tests)
+
+# ---- CUDA unit tests (M2+) ----
+if(TDMD_ENABLE_CUDA)
+  add_executable(tdmd_cuda_tests
+    unit/test_device_buffer.cu
+    unit/test_device_cell_list.cu
+    unit/test_device_neighbor_list.cu
+    unit/test_device_morse.cu
+    unit/test_device_eam.cu
+    unit/test_device_lammps_ab.cu
+    unit/test_device_nve_drift.cu
+  )
+  target_link_libraries(tdmd_cuda_tests PRIVATE
+    tdmd::core tdmd::io tdmd::domain tdmd::neighbors tdmd::potentials tdmd::integrator
+    GTest::gtest_main
+  )
+  target_compile_definitions(tdmd_cuda_tests PRIVATE
+    TDMD_TEST_DATA_DIR="${TDMD_TEST_DATA_DIR}"
+  )
+  set_target_properties(tdmd_cuda_tests PROPERTIES
+    CUDA_SEPARABLE_COMPILATION ON
+  )
+  gtest_discover_tests(tdmd_cuda_tests)
+endif()

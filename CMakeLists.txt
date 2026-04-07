@@ -28,8 +28,10 @@ include(CompilerFlags)
 
 # ---------------- Optional CUDA ----------------
 if(TDMD_ENABLE_CUDA)
-  enable_language(CUDA)
+  # Set architectures BEFORE enable_language(CUDA), so CMake doesn't
+  # auto-detect a wrong default.
   include(CUDAConfig)
+  enable_language(CUDA)
 endif()
 
 # ---------------- Optional MPI ----------------

@@ -1,5 +1,10 @@
 # integrator module — time integration
-add_library(tdmd_integrator STATIC velocity_verlet.cpp)
+if(TDMD_ENABLE_CUDA)
+  add_library(tdmd_integrator STATIC velocity_verlet.cpp device_velocity_verlet.cu)
+  set_target_properties(tdmd_integrator PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+else()
+  add_library(tdmd_integrator STATIC velocity_verlet.cpp)
+endif()
 target_include_directories(tdmd_integrator PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(tdmd_integrator PUBLIC tdmd::core)
 add_library(tdmd::integrator ALIAS tdmd_integrator)

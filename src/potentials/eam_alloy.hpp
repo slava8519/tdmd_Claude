@@ -61,6 +61,17 @@ class EamAlloy {
   [[nodiscard]] real cutoff() const noexcept { return cutoff_; }
   [[nodiscard]] i32 ntypes() const noexcept { return ntypes_; }
 
+  // Accessors for GPU upload (M2).
+  [[nodiscard]] const std::vector<SplineTable>& embedding() const noexcept {
+    return embedding_;
+  }
+  [[nodiscard]] const std::vector<SplineTable>& density() const noexcept {
+    return density_;
+  }
+  [[nodiscard]] const std::vector<SplineTable>& phi() const noexcept {
+    return phi_;
+  }
+
  private:
   i32 ntypes_{0};
   real cutoff_{0};
