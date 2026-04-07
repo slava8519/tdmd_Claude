@@ -9,7 +9,7 @@ target_link_libraries(tdmd_core INTERFACE tdmd_flags)
 # ---- subdirectories (each adds its own library target) ----
 add_subdirectory(core)
 add_subdirectory(io)
-# add_subdirectory(domain)      # M1
+add_subdirectory(domain)
 # add_subdirectory(neighbors)   # M1
 # add_subdirectory(potentials)  # M1
 # add_subdirectory(integrator)  # M1
