@@ -11,7 +11,7 @@ add_subdirectory(core)
 add_subdirectory(io)
 add_subdirectory(domain)
 add_subdirectory(neighbors)
-# add_subdirectory(potentials)  # M1
+add_subdirectory(potentials)
 # add_subdirectory(integrator)  # M1
 # add_subdirectory(scheduler)   # M3
 # add_subdirectory(comm)        # M5
