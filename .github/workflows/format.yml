@@ -1,0 +1,17 @@
+name: format
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  clang-format:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install clang-format
+        run: sudo apt-get update && sudo apt-get install -y clang-format
+      - name: Check formatting
+        run: |
+          find src tests -type f \( -name "*.hpp" -o -name "*.cpp" -o -name "*.cu" -o -name "*.cuh" \) \
+            -exec clang-format --dry-run --Werror --style=file {} +

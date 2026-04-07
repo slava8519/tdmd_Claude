@@ -1,0 +1,22 @@
+{
+  "_comment": "Analytic reference values for the two-atoms-morse case at t=0, r=2.5 A.",
+  "case": "two-atoms-morse",
+  "potential": {
+    "type": "morse",
+    "D0_eV": 0.5,
+    "alpha_inv_A": 1.5,
+    "r0_A": 2.0,
+    "cutoff_A": 8.0
+  },
+  "atoms": [
+    {"id": 1, "type": 1, "pos_A": [0.0, 0.0, 0.0]},
+    {"id": 2, "type": 1, "pos_A": [2.5, 0.0, 0.0]}
+  ],
+  "step0": {
+    "r_A": 2.5,
+    "U_eV": -0.36080,
+    "F_eV_per_A": -0.37386,
+    "force_on_atom_1_eV_per_A": [-0.37386, 0.0, 0.0],
+    "force_on_atom_2_eV_per_A": [0.37386, 0.0, 0.0]
+  }
+}

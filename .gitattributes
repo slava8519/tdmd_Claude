@@ -1,0 +1,26 @@
+# Default: text, normalize line endings
+* text=auto eol=lf
+
+# Source code
+*.cpp text diff=cpp
+*.hpp text diff=cpp
+*.cu  text diff=cpp
+*.cuh text diff=cpp
+*.h   text diff=cpp
+*.c   text diff=cpp
+*.py  text diff=python
+
+# Docs
+*.md  text
+*.rst text
+
+# Build files
+CMakeLists.txt text
+*.cmake        text
+*.yml          text
+*.yaml         text
+
+# Binary references (committed for VerifyLab baselines)
+verifylab/cases/*/reference/*.log binary
+verifylab/cases/*/reference/*.dat binary
+benchmarks/*/expected/* binary

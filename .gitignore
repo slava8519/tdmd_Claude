@@ -1,0 +1,99 @@
+# Build directories
+build/
+build-*/
+out/
+cmake-build-*/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+Makefile
+compile_commands.json
+CTestTestfile.cmake
+_deps/
+install_manifest.txt
+
+# Object files and binaries
+*.o
+*.obj
+*.so
+*.so.*
+*.dylib
+*.dll
+*.a
+*.lib
+*.exe
+*.out
+*.app
+*.exp
+
+# CUDA
+*.fatbin
+*.cubin
+*.ptx
+*.i
+*.ii
+*.gpu
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.cursor/
+.zed/
+
+# Profiling output
+*.nsys-rep
+*.qdrep
+*.qdstrm
+*.ncu-rep
+nsys-report-*
+profile.json
+gmon.out
+callgrind.out.*
+massif.out.*
+
+# Logs and runtime artifacts
+*.log
+log.lammps
+log.cite
+*.dump
+*.lammpstrj
+*.restart
+core
+core.*
+hs_err_pid*
+
+# VerifyLab outputs (results, not references)
+verifylab/cases/*/output/
+verifylab/cases/*/results/
+verifylab/runners/__pycache__/
+
+# Benchmark outputs
+benchmarks/*/results/
+benchmarks/*/output/
+
+# Generated docs
+docs/_build/
+docs/site/
+
+# Local overrides
+.envrc
+.env.local
+local.cmake

@@ -1,0 +1,8 @@
+This file will be replaced by the actual LAMMPS reference log when the case is
+first generated against a real LAMMPS build (M1).
+
+To regenerate:
+  cd verifylab/cases/two-atoms-morse/lammps
+  lmp -in in.case -log ../reference/lammps.log
+
+Then commit reference/lammps.log to the repository.

@@ -1,0 +1,28 @@
+# Tolerances for the two-atoms-morse VerifyLab case.
+# Loosening any of these requires an ADR.
+
+[forces]
+# Max relative error of any force component vs analytic.
+mode = "max_relative"
+threshold = 1e-12  # FP64 mode
+threshold_mixed = 1e-5  # mixed precision mode
+
+[energy]
+mode = "absolute"
+unit = "eV"
+threshold = 1e-12
+threshold_mixed = 1e-5
+
+[ab_lammps_force]
+# Max relative error vs LAMMPS reference (FP64 in both)
+mode = "max_relative"
+threshold = 1e-10
+
+[ab_lammps_energy]
+mode = "absolute"
+unit = "eV"
+threshold = 1e-10
+
+[case]
+# Whether this case runs in the fast CI suite (every PR) or only nightly.
+slow = false

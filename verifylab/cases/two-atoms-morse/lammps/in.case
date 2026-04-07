@@ -1,0 +1,24 @@
+# LAMMPS reference for two-atoms-morse — keep in sync with input/input.in
+units           metal
+boundary        p p p
+atom_style      atomic
+
+region          box block 0.0 20.0 0.0 20.0 0.0 20.0
+create_box      1 box
+mass            1 1.0
+create_atoms    1 single 0.0 0.0 0.0
+create_atoms    1 single 2.5 0.0 0.0
+
+pair_style      morse 8.0
+pair_coeff      1 1   0.5  1.5  2.0
+
+velocity        all set 0.0 0.0 0.0
+neighbor        2.0 bin
+neigh_modify    every 1 delay 0 check yes
+
+timestep        0.001
+thermo          10
+thermo_style    custom step temp pe ke etotal press
+dump            d1 all custom 100 dump.lammpstrj id type x y z vx vy vz
+
+run             1000
