@@ -35,6 +35,13 @@ struct PipelineConfig {
   real t_target{0};       // target temperature (K). 0 = NVE mode.
   real t_period{0.1};     // NHC coupling period (ps). LAMMPS Tdamp.
   i32 nhc_length{3};      // NHC chain length.
+
+  // Adaptive Δt (opt-in). Enabled when adaptive_dt = true.
+  // Δt = min(dt_max, c2 * r_c / v_max).
+  bool adaptive_dt{false};
+  real dt_max{0.002};     // maximum Δt (ps).
+  real dt_min{0.0001};    // minimum Δt (ps).
+  real c2{0.05};          // safety factor for adaptive Δt.
 };
 
 /// @brief Telemetry counters for the pipeline.
@@ -98,6 +105,9 @@ class PipelineScheduler {
 
   // NVT thermostat (null in NVE mode).
   std::unique_ptr<integrator::NoseHooverChain> nhc_;
+
+  // Adaptive Δt state. current_dt_ is cfg_.dt unless adaptive mode.
+  real current_dt_;
 
   /// @brief Check if zone z can advance (I-2 causal dependency).
   [[nodiscard]] bool check_deps(i32 z_id) const;

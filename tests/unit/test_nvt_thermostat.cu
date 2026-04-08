@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// test_nvt_thermostat.cu — M7 NVT thermostat validation tests.
+// test_nvt_thermostat.cu — M7 NVT thermostat and adaptive Δt tests.
 //
 // Tests:
 // 1. NHC thermostat drives ⟨T⟩ toward T_target (300 K).
 // 2. device_compute_ke matches host KE calculation.
 // 3. Deterministic NVT pipeline matches re-run (within FP tolerance).
+// 4. device_compute_vmax matches host v_max.
+// 5. Adaptive Δt produces stable NVE trajectories.
 #include <gtest/gtest.h>
 
 #include <cmath>
@@ -237,4 +239,97 @@ TEST(NVTThermostat, DeterministicReproducibility) {
   // may accumulate in slightly different order across runs).
   EXPECT_LT(max_diff, real{1e-10})
       << "Deterministic NVT max position diff: " << max_diff;
+}
+
+// Test: device_compute_vmax matches host computation.
+TEST(AdaptiveDt, DeviceVmaxMatchesHost) {
+  std::string data_dir = TDMD_TEST_DATA_DIR;
+  SystemState state = io::read_lammps_data(data_dir + "/cu_fcc_256.data");
+  init_velocities(state, real{300.0}, 77);
+
+  auto natoms = static_cast<i32>(state.natoms);
+  auto n = static_cast<std::size_t>(natoms);
+
+  // Host v_max.
+  real host_vmax = 0;
+  for (std::size_t i = 0; i < n; ++i) {
+    const Vec3& v = state.velocities[i];
+    real speed2 = v.x * v.x + v.y * v.y + v.z * v.z;
+    host_vmax = std::max(host_vmax, speed2);
+  }
+  host_vmax = std::sqrt(host_vmax);
+
+  // Device v_max.
+  DeviceBuffer<Vec3> d_vel(n);
+  d_vel.copy_from_host(state.velocities.data(), n);
+  real dev_vmax = integrator::device_compute_vmax(d_vel.data(), natoms);
+
+  EXPECT_GT(host_vmax, real{0});
+  real rel_diff = std::abs(dev_vmax - host_vmax) / host_vmax;
+  EXPECT_LT(rel_diff, real{1e-10})
+      << "vmax device=" << dev_vmax << " host=" << host_vmax;
+}
+
+// Test: Adaptive Δt produces stable NVE trajectories.
+// With v_max-based dt, energy should be conserved at least as well as fixed dt.
+TEST(AdaptiveDt, StableNVETrajectory) {
+  std::string data_dir = TDMD_TEST_DATA_DIR;
+  SystemState state = io::read_lammps_data(data_dir + "/cu_fcc_256.data");
+
+  // Give atoms some velocity so adaptive Δt has something to work with.
+  init_velocities(state, real{300.0}, 55);
+
+  real D = real{0.3429}, alpha = real{1.3588}, r0 = real{2.866}, rc = real{6.0};
+  potentials::MorseParams params{D, alpha, r0, rc, rc * rc};
+
+  scheduler::PipelineConfig cfg;
+  cfg.dt = real{0.001};  // nominal dt (used as initial dt)
+  cfg.r_skin = real{1.0};
+  cfg.rebuild_every = 10;
+  cfg.deterministic = true;
+  cfg.adaptive_dt = true;
+  cfg.dt_max = real{0.002};
+  cfg.dt_min = real{0.0001};
+  cfg.c2 = real{0.05};
+
+  auto natoms = static_cast<i32>(state.natoms);
+  scheduler::PipelineScheduler sched(state.box, natoms, params, cfg);
+  sched.upload(state.positions.data(), state.velocities.data(),
+               state.forces.data(), state.types.data(), state.ids.data(),
+               state.masses.data(), static_cast<i32>(state.masses.size()));
+
+  // Run 1 step to get forces.
+  sched.run_until(1);
+  sched.download(state.positions.data(), state.velocities.data(),
+                 state.forces.data(), state.types.data(), state.ids.data(),
+                 natoms);
+
+  // Compute initial energy.
+  potentials::MorsePair morse(D, alpha, r0, rc);
+  neighbors::NeighborList cpu_nlist;
+  cpu_nlist.build(state.positions.data(), state.natoms, state.box, rc,
+                  cfg.r_skin);
+  real pe0 = potentials::compute_pair_forces(state, cpu_nlist, morse);
+  real ke0 = compute_ke_host(state.velocities, state.types, state.masses,
+                             state.natoms);
+  real e0 = pe0 + ke0;
+
+  // Run 1000 steps with adaptive dt.
+  sched.run_until(1000);
+  sched.download(state.positions.data(), state.velocities.data(),
+                 state.forces.data(), state.types.data(), state.ids.data(),
+                 natoms);
+
+  cpu_nlist.build(state.positions.data(), state.natoms, state.box, rc,
+                  cfg.r_skin);
+  real pe_f = potentials::compute_pair_forces(state, cpu_nlist, morse);
+  real ke_f = compute_ke_host(state.velocities, state.types, state.masses,
+                              state.natoms);
+  real ef = pe_f + ke_f;
+
+  real drift = std::abs((ef - e0) / e0);
+  // Adaptive dt breaks symplecticity slightly (varying step size), so expect
+  // larger drift than fixed dt. 1e-2 is the threshold for a stable trajectory.
+  EXPECT_LT(drift, real{1e-2})
+      << "Adaptive Δt NVE drift |dE/E| = " << drift;
 }

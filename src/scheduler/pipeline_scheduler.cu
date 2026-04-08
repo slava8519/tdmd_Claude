@@ -27,6 +27,7 @@ PipelineScheduler::PipelineScheduler(const Box& box, i32 natoms,
   partition_.build_zone_neighbors(params_.rc + cfg_.r_skin);
 
   zone_stream_.assign(static_cast<std::size_t>(partition_.n_zones()), -1);
+  current_dt_ = cfg_.dt;
 
   // Initialize NVT thermostat if requested.
   if (cfg_.t_target > 0) {
@@ -128,11 +129,11 @@ void PipelineScheduler::launch_zone_step(i32 z_id, i32 stream_id) {
   // 1. Half-kick (using old forces).
   integrator::device_half_kick_zone(d_vel_.data(), d_forces_.data(),
                                     d_types_.data(), d_masses_.data(), first,
-                                    count, cfg_.dt, s);
+                                    count, current_dt_, s);
 
   // 2. Drift (update positions).
   integrator::device_drift_zone(d_pos_.data(), d_vel_.data(), first, count,
-                                cfg_.dt, box_, s);
+                                current_dt_, box_, s);
 
   // 3. Zero forces for this zone.
   integrator::device_zero_forces_zone(d_forces_.data(), first, count, s);
@@ -145,7 +146,7 @@ void PipelineScheduler::launch_zone_step(i32 z_id, i32 stream_id) {
   // 5. Second half-kick (using new forces).
   integrator::device_half_kick_zone(d_vel_.data(), d_forces_.data(),
                                     d_types_.data(), d_masses_.data(), first,
-                                    count, cfg_.dt, s);
+                                    count, current_dt_, s);
 
   // Record event.
   streams_.record_event(stream_id);
@@ -227,6 +228,17 @@ void PipelineScheduler::run_until(i32 target_step) {
       TDMD_CUDA_CHECK(cudaDeviceSynchronize());
       poll_completions();
       rebuild_nlist();
+    }
+
+    // Adaptive Δt: compute new dt from v_max at the start of each step.
+    if (cfg_.adaptive_dt) {
+      TDMD_CUDA_CHECK(cudaDeviceSynchronize());
+      poll_completions();
+      real vmax = integrator::device_compute_vmax(d_vel_.data(), natoms_);
+      if (vmax > 0) {
+        current_dt_ = std::min(cfg_.dt_max, cfg_.c2 * params_.rc / vmax);
+        current_dt_ = std::max(current_dt_, cfg_.dt_min);
+      }
     }
 
     if (nhc_) {

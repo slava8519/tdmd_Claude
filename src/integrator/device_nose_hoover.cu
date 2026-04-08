@@ -118,6 +118,62 @@ void device_scale_velocities_zone(Vec3* d_velocities, i32 first_atom,
   TDMD_CUDA_CHECK(cudaGetLastError());
 }
 
+// ---- v_max reduction ----
+
+/// Per-block max speed reduction. Each block computes max |v| for its chunk.
+__global__ void vmax_reduce_kernel(const Vec3* __restrict__ velocities,
+                                   i32 natoms, real* __restrict__ d_block_max) {
+  extern __shared__ real sdata[];
+
+  int tid = threadIdx.x;
+  int gid = blockIdx.x * blockDim.x + threadIdx.x;
+
+  real val = 0;
+  if (gid < natoms) {
+    Vec3 v = velocities[gid];
+    val = v.x * v.x + v.y * v.y + v.z * v.z;
+  }
+  sdata[tid] = val;
+  __syncthreads();
+
+  for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+    if (tid < s) {
+      if (sdata[tid + s] > sdata[tid]) sdata[tid] = sdata[tid + s];
+    }
+    __syncthreads();
+  }
+
+  if (tid == 0) {
+    d_block_max[blockIdx.x] = sdata[0];
+  }
+}
+
+real device_compute_vmax(const Vec3* d_velocities, i32 natoms) {
+  if (natoms == 0) return 0;
+
+  int grid = (natoms + kBlock - 1) / kBlock;
+
+  real* d_block_max = nullptr;
+  TDMD_CUDA_CHECK(cudaMalloc(&d_block_max,
+                              static_cast<std::size_t>(grid) * sizeof(real)));
+
+  vmax_reduce_kernel<<<grid, kBlock, kBlock * sizeof(real)>>>(
+      d_velocities, natoms, d_block_max);
+  TDMD_CUDA_CHECK(cudaGetLastError());
+
+  std::vector<real> h_max(static_cast<std::size_t>(grid));
+  TDMD_CUDA_CHECK(cudaMemcpy(h_max.data(), d_block_max,
+                              static_cast<std::size_t>(grid) * sizeof(real),
+                              cudaMemcpyDeviceToHost));
+  cudaFree(d_block_max);
+
+  real max_v2 = 0;
+  for (real m : h_max) {
+    if (m > max_v2) max_v2 = m;
+  }
+  return std::sqrt(max_v2);
+}
+
 // ---- Nosé-Hoover Chain (host-side) ----
 
 NoseHooverChain::NoseHooverChain(const NHCConfig& cfg, real dt, i32 n_dof)

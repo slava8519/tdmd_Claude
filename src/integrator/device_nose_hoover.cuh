@@ -80,4 +80,10 @@ void device_scale_velocities_zone(Vec3* d_velocities, i32 first_atom,
                                   i32 atom_count, real factor,
                                   cudaStream_t stream = nullptr);
 
+/// @brief Compute maximum atomic speed |v| on GPU.
+/// @param d_velocities Device array of velocities.
+/// @param natoms Number of atoms.
+/// @return Maximum speed (Å/ps).
+[[nodiscard]] real device_compute_vmax(const Vec3* d_velocities, i32 natoms);
+
 }  // namespace tdmd::integrator
