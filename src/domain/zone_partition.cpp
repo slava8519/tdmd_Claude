@@ -148,4 +148,55 @@ void ZonePartition::build_zone_neighbors(real r_list) {
   }
 }
 
+void ZonePartition::assign_to_ranks(i32 n_ranks) {
+  TDMD_ASSERT(n_ranks > 0, "need at least 1 rank");
+  TDMD_ASSERT(n_zones_ >= n_ranks,
+              "need at least as many zones as ranks");
+
+  // Distribute zones as evenly as possible.
+  i32 base = n_zones_ / n_ranks;
+  i32 remainder = n_zones_ % n_ranks;
+
+  i32 z = 0;
+  for (i32 r = 0; r < n_ranks; ++r) {
+    i32 count = base + (r < remainder ? 1 : 0);
+    for (i32 j = 0; j < count; ++j) {
+      zones_[static_cast<std::size_t>(z)].owner_rank = r;
+      ++z;
+    }
+  }
+}
+
+i32 ZonePartition::first_zone_of_rank(i32 r) const noexcept {
+  for (i32 z = 0; z < n_zones_; ++z) {
+    if (zones_[static_cast<std::size_t>(z)].owner_rank == r) return z;
+  }
+  return n_zones_;
+}
+
+i32 ZonePartition::n_zones_of_rank(i32 r) const noexcept {
+  i32 count = 0;
+  for (i32 z = 0; z < n_zones_; ++z) {
+    if (zones_[static_cast<std::size_t>(z)].owner_rank == r) ++count;
+  }
+  return count;
+}
+
+std::vector<i32> ZonePartition::ghost_zones(i32 my_rank) const {
+  std::vector<i32> ghosts;
+  for (i32 z = 0; z < n_zones_; ++z) {
+    if (!is_local(z, my_rank)) continue;
+    // Check all neighbors of this local zone.
+    for (i32 nz : zone_neighbors_[static_cast<std::size_t>(z)]) {
+      if (!is_local(nz, my_rank)) {
+        ghosts.push_back(nz);
+      }
+    }
+  }
+  // Remove duplicates.
+  std::sort(ghosts.begin(), ghosts.end());
+  ghosts.erase(std::unique(ghosts.begin(), ghosts.end()), ghosts.end());
+  return ghosts;
+}
+
 }  // namespace tdmd::domain

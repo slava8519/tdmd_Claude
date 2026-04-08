@@ -61,6 +61,29 @@ class ZonePartition {
   /// @param r_list Cutoff + skin.
   void build_zone_neighbors(real r_list);
 
+  /// @brief Assign zones to MPI ranks (contiguous blocks).
+  /// @param n_ranks Total number of MPI ranks.
+  void assign_to_ranks(i32 n_ranks);
+
+  /// @brief Which rank owns zone z_id.
+  [[nodiscard]] i32 owner_rank(i32 z_id) const noexcept {
+    return zones_[static_cast<std::size_t>(z_id)].owner_rank;
+  }
+
+  /// @brief Is zone z_id owned by my_rank?
+  [[nodiscard]] bool is_local(i32 z_id, i32 my_rank) const noexcept {
+    return owner_rank(z_id) == my_rank;
+  }
+
+  /// @brief First zone owned by rank r.
+  [[nodiscard]] i32 first_zone_of_rank(i32 r) const noexcept;
+
+  /// @brief Number of zones owned by rank r.
+  [[nodiscard]] i32 n_zones_of_rank(i32 r) const noexcept;
+
+  /// @brief Ghost zones: non-local zones that are neighbors of any local zone.
+  [[nodiscard]] std::vector<i32> ghost_zones(i32 my_rank) const;
+
  private:
   real zone_width_{0};
   real box_lo_x_{0};

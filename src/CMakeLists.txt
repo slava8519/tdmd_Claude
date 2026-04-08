@@ -9,6 +9,6 @@ add_subdirectory(neighbors)
 add_subdirectory(potentials)
 add_subdirectory(integrator)
 add_subdirectory(scheduler)
-# add_subdirectory(comm)        # M5
+add_subdirectory(comm)          # M5 — MPI ring comm
 # add_subdirectory(telemetry)   # M0+
 add_subdirectory(drivers)

@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-04-08
+
+### Added
+- `comm/MpiRingComm` — MPI ring communicator with async send/recv for zone data exchange.
+- `comm/CMakeLists.txt` — MPI-conditional build module.
+- Multi-rank zone ownership: `ZonePartition::assign_to_ranks()`, `owner_rank()`, `ghost_zones()`.
+- `DeviceBuffer` offset-based `copy_from_host`/`copy_to_host` overloads.
+- `scheduler/DistributedPipelineScheduler` — multi-rank TD pipeline with MPI_Sendrecv exchange.
+- Boundary zone detection and ghost zone time_step tracking for cross-rank dependencies.
+- Build option `-DTDMD_ENABLE_MPI=ON` activates MPI compilation.
+- 3 new MPI tests: DeterministicMatchesSingleRank, PipelineNVEConservation, ZoneTimeStepsAdvance.
+
+### Notes
+- **M5 complete.** Core exit criteria met. 60 tests passing (57 M0-M4 + 3 M5 MPI).
+- 2-rank distributed pipeline matches M4 single-rank within 1e-6.
+- 2-rank pipeline NVE conservation |dE/E| < 1e-4 over 1000 steps.
+- Full replication (all atoms on each rank). Ghost-only optimization deferred.
+- Multi-GPU scaling benchmarks deferred (single-GPU dev machine).
+- Next: M6 (2D time × space parallelism).
+
+## [0.4.0] - 2026-04-08
+
+### Added
+- `scheduler/StreamPool` — CUDA stream pool with per-stream events for pipeline overlap.
+- `potentials/device_morse_zone` — per-zone Morse force kernel (restricted atom range on CUDA stream).
+- `integrator/device_velocity_verlet_zone` — per-zone half-kick, drift, zero-forces kernels.
+- `scheduler/PipelineScheduler` — full TD pipeline scheduler with dependency DAG.
+- Causal dependency check (I-2): neighbor zones must be at time_step >= T-1 and not Computing.
+- Deterministic mode: single CUDA stream, sequential zone walk (bit-identical to M3).
+- Pipeline mode: multi-stream, zones at different time steps, overlapping computation.
+- `PipelineStats` telemetry counters (kernel launches, dep checks, ticks).
+- 3 new tests: DeterministicMatchesM3, PipelineNVEConservation, ZoneTimeStepsAdvance.
+
+### Notes
+- **M4 complete.** Core exit criteria met. 57 tests passing.
+- Deterministic pipeline matches M3 sequential scheduler within 1e-10.
+- Pipeline NVE energy conservation |dE/E| < 1e-4 over 1000 steps.
+- Performance metrics (occupancy, overhead) deferred to M7.
+- Next: M5 (MPI ring parallelization).
+
 ## [0.3.0] - 2026-04-08
 
 ### Added

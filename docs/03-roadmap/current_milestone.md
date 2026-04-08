@@ -1,32 +1,38 @@
-# Current Milestone: M3 — Zone Decomposition (in-process) ✅ COMPLETE
+# Current Milestone: M5 — MPI Ring Parallelization ✅ COMPLETE
 
-> **Goal:** Introduce Zone data structure and cell→zone mapping. Scheduler walks zones in order. No time decomposition yet.
+> **Goal:** Lift the in-process pipeline from M4 to actual MPI ranks. Multi-rank, single GPU per rank.
 
 ## Checklist
 
-- [x] `scheduler/zone.hpp` — Zone struct + ZoneState enum + transition logic
-- [x] `domain/ZonePartition` — 1D partition along X-axis, atom-zone assignment
-- [x] Zone neighbor mapping (precomputed per r_list)
-- [x] `scheduler/SequentialScheduler` — walks zones linearly, global force compute
-- [x] Zone state machine tests (legal/illegal transitions, time_step monotonicity)
-- [x] Zone partition tests (every atom in one zone, correct bbox)
-- [x] Bit-identical results vs M2 global compute
-- [x] NVE conservation under zone-walked scheduler
+- [x] `comm/MpiRingComm` — async MPI ring communicator with send/recv
+- [x] `comm/CMakeLists.txt` — MPI-conditional build
+- [x] Extend `ZonePartition` for multi-rank ownership (assign_to_ranks, owner_rank, ghost_zones)
+- [x] `DeviceBuffer` offset-based copy_from_host/copy_to_host
+- [x] `scheduler/DistributedPipelineScheduler` — multi-rank pipeline with synchronous MPI_Sendrecv
+- [x] Boundary zone detection (send_to_next/send_to_prev zones)
+- [x] Ghost zone time_step tracking for cross-rank dependency checks
+- [x] Synchronized loop via min_global_time_step (MPI_Allreduce)
+- [x] Synchronous boundary exchange (pack/MPI_Sendrecv/unpack) — deadlock-free
+- [x] Neighbor list rebuild synchronized across ranks
+- [x] Test: 2-rank deterministic matches single-rank M4 (< 1e-6)
+- [x] Test: 2-rank pipeline NVE conservation (1000 steps, |dE/E| < 1e-4)
+- [x] Test: all zones advance to target_step across ranks
 
-## Exit criteria — ALL MET
+## Exit criteria — status
 
-- [x] Zone-walked simulation produces identical results to M2 (positions < 1e-12, forces < 1e-10).
-- [x] NVE energy conservation: 1000 steps, |dE/E| < 1e-4.
-- [x] Zone state machine: all 49 transition pairs tested, only 7 legal ones pass.
-- [x] Zone partition: every atom in exactly one zone, atoms in correct zone bbox.
-- [x] All 54 tests pass (31 CPU M1 + 15 GPU M2 + 8 M3 zone/scheduler).
+- [x] 2-rank run produces results matching M4 single-rank within FP tolerance (< 1e-6).
+- [x] 2-rank NVE energy conservation: 1000 steps, |dE/E| < 1e-4.
+- [x] All 60 tests pass (57 M0-M4 + 3 M5 distributed MPI).
+- [ ] Strong scaling efficiency >= 0.85 at P=4 (needs multi-GPU cluster — deferred).
+- [ ] No deadlocks under stress test (needs multi-GPU — deferred).
 
 ## Architecture notes
 
-- 1D zone partition along X-axis (simplest, per theory doc).
-- Auto zone count: floor(Lx / r_cut), minimum 3 for PBC.
-- Atoms sorted by zone (counting sort) for future data locality.
-- Sequential scheduler: all zones at same time_step, global force compute.
-- Zone states bypass MPI states (Free→Receiving→Received) in M3 since single-rank.
+- Each rank holds ALL atoms on GPU (full replication). Memory-efficient ghost-only mode is future optimization.
+- Synchronous MPI_Sendrecv for boundary exchange: pack zones → exchange sizes → exchange data → unpack.
+- Loop condition uses `min_global_time_step()` (MPI_Allreduce) so all ranks enter/exit together.
+- Zone assignment: contiguous blocks, `base + remainder` distribution.
+- 3 zones auto (from floor(Lx/r_cut)=2, min 3 for PBC), 2 ranks → rank 0 gets 2 zones, rank 1 gets 1 zone.
+- Ghost zones identified per rank: non-local zones in any local zone's neighbor list.
 
-## Next: M4 — TD scheduler (full pipeline, in-process)
+## Next: M6 — 2D time × space parallelism
