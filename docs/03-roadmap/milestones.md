@@ -25,7 +25,7 @@
 | M3 | Zone decomposition (in-process) | 3 weeks | ✅ |
 | M4 | TD scheduler (full pipeline, in-process) | 5 weeks | ✅ |
 | M5 | MPI ring parallelization | 6 weeks | ✅ |
-| M6 | 2D time × space parallelism | 4 weeks | ⬜ |
+| M6 | 2D time × space parallelism | 4 weeks | ✅ |
 | M7 | NVT/NPT + adaptive Δt + optimizations | 4 weeks | ⬜ |
 | M8 | ML potentials (continuous) | ongoing | ⬜ |
 
@@ -194,9 +194,9 @@ Post-M7 research items: dynamic load balancing, space-filling-curve traversal or
 4. Tests on a single big system (FCC16 large) with both axes nontrivial.
 
 **Exit criteria:**
-- [ ] Correct results vs M5 reference at the same total rank count.
-- [ ] Scaling beyond P_opt works: 16 ranks gives meaningful speedup over 8 ranks even when pure TD would saturate.
-- [ ] Documented in `docs/02-architecture/parallel-model.md`.
+- [x] Correct results vs M5/M4 reference at the same total rank count (< 1e-6).
+- [ ] Scaling beyond P_opt works: 16 ranks gives meaningful speedup over 8 ranks even when pure TD would saturate (needs multi-GPU cluster — deferred).
+- [ ] Documented in `docs/02-architecture/parallel-model.md` (deferred).
 
 **Out of scope:** dynamic rebalancing.
 

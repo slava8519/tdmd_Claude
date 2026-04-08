@@ -1,38 +1,39 @@
-# Current Milestone: M5 — MPI Ring Parallelization ✅ COMPLETE
+# Current Milestone: M6 — 2D Time × Space Parallelism ✅ COMPLETE
 
-> **Goal:** Lift the in-process pipeline from M4 to actual MPI ranks. Multi-rank, single GPU per rank.
+> **Goal:** Add spatial decomposition as a second axis, so we can scale beyond P_opt of pure TD.
 
 ## Checklist
 
-- [x] `comm/MpiRingComm` — async MPI ring communicator with send/recv
-- [x] `comm/CMakeLists.txt` — MPI-conditional build
-- [x] Extend `ZonePartition` for multi-rank ownership (assign_to_ranks, owner_rank, ghost_zones)
-- [x] `DeviceBuffer` offset-based copy_from_host/copy_to_host
-- [x] `scheduler/DistributedPipelineScheduler` — multi-rank pipeline with synchronous MPI_Sendrecv
-- [x] Boundary zone detection (send_to_next/send_to_prev zones)
-- [x] Ghost zone time_step tracking for cross-rank dependency checks
-- [x] Synchronized loop via min_global_time_step (MPI_Allreduce)
-- [x] Synchronous boundary exchange (pack/MPI_Sendrecv/unpack) — deadlock-free
-- [x] Neighbor list rebuild synchronized across ranks
-- [x] Test: 2-rank deterministic matches single-rank M4 (< 1e-6)
-- [x] Test: 2-rank pipeline NVE conservation (1000 steps, |dE/E| < 1e-4)
-- [x] Test: all zones advance to target_step across ranks
+- [x] `domain/SpatialDecomp` — 1D Y-axis slab decomposition for spatial subdomain partitioning
+- [x] `scheduler/HybridPipelineScheduler` — 2D time × space pipeline scheduler
+- [x] MPI_Cart_create with dims [P_time, P_space], periodic in both dimensions
+- [x] time_comm (TD ring: same spatial subdomain), space_comm (halo exchange: same time group)
+- [x] Ghost atom halo exchange on space_comm (positions, velocities, IDs)
+- [x] Ghost atom deduplication (critical for P_space=2 where prev==next)
+- [x] TD boundary zone exchange on time_comm (reuses M5 pack/unpack pattern)
+- [x] Device buffers pre-allocated for natoms_global to avoid destructive resize
+- [x] Fix: PBC wrapping `if/else if` → `if/if` in drift kernel (atoms at box.hi broke spatial decomp)
+- [x] Test: 4-rank hybrid (P_time=2, P_space=2) matches M4 single-rank (< 1e-6)
+- [x] Test: 4-rank hybrid NVE conservation (500 steps, |dE/E| < 1e-4)
+- [x] Test: all local zones advance to target_step
+- [x] Build system: hybrid_pipeline_scheduler.cu added to scheduler CMakeLists.txt
+- [x] Build system: tdmd_m6_tests executable with 3 CTest entries (4-rank MPI)
 
 ## Exit criteria — status
 
-- [x] 2-rank run produces results matching M4 single-rank within FP tolerance (< 1e-6).
-- [x] 2-rank NVE energy conservation: 1000 steps, |dE/E| < 1e-4.
-- [x] All 60 tests pass (57 M0-M4 + 3 M5 distributed MPI).
-- [ ] Strong scaling efficiency >= 0.85 at P=4 (needs multi-GPU cluster — deferred).
-- [ ] No deadlocks under stress test (needs multi-GPU — deferred).
+- [x] Correct results vs M5/M4 reference at the same total rank count (< 1e-6).
+- [ ] Scaling beyond P_opt: 16 ranks gives meaningful speedup over 8 ranks (needs multi-GPU cluster — deferred).
+- [x] All 63 tests pass (60 M0-M5 + 3 M6 hybrid MPI).
+- [ ] Documented in `docs/02-architecture/parallel-model.md` (deferred — no existing file yet).
 
 ## Architecture notes
 
-- Each rank holds ALL atoms on GPU (full replication). Memory-efficient ghost-only mode is future optimization.
-- Synchronous MPI_Sendrecv for boundary exchange: pack zones → exchange sizes → exchange data → unpack.
-- Loop condition uses `min_global_time_step()` (MPI_Allreduce) so all ranks enter/exit together.
-- Zone assignment: contiguous blocks, `base + remainder` distribution.
-- 3 zones auto (from floor(Lx/r_cut)=2, min 3 for PBC), 2 ranks → rank 0 gets 2 zones, rank 1 gets 1 zone.
-- Ghost zones identified per rank: non-local zones in any local zone's neighbor list.
+- 2D MPI Cartesian topology: dims=[P_time, P_space], both periodic.
+- Zone partition along X (for TD pipeline), spatial partition along Y (for scaling).
+- Data layout on GPU: [owned atoms sorted by zone | ghost atoms appended after].
+- Halo exchange: download owned pos/vel → identify_send_ghosts → MPI_Sendrecv pos+vel+IDs → deduplicate → upload ghost region.
+- Ghost deduplication is essential when P_space=2: prev_rank==next_rank, so atoms near both Y-boundaries arrive via both channels.
+- Device buffers allocated for natoms_global_ (not n_total_) to prevent destructive resize in upload_ghosts().
+- PBC drift fix: `if/else if` wrapping could leave atoms at box.hi after wrap-from-below, breaking spatial decomposition ownership checks. Changed to `if/if` for idempotent wrapping.
 
-## Next: M6 — 2D time × space parallelism
+## Next: M7 — NVT/NPT + adaptive Δt + optimizations

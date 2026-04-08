@@ -88,5 +88,27 @@ if(TDMD_ENABLE_CUDA)
       COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 $<TARGET_FILE:tdmd_mpi_tests> --gtest_filter=DistributedPipeline.PipelineNVEConservation)
     add_test(NAME DistributedPipeline.ZoneTimeStepsAdvance
       COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 $<TARGET_FILE:tdmd_mpi_tests> --gtest_filter=DistributedPipeline.ZoneTimeStepsAdvance)
+
+    # ---- M6 Hybrid 2D tests (4 ranks: P_time=2, P_space=2) ----
+    add_executable(tdmd_m6_tests
+      unit/test_hybrid_pipeline.cu
+    )
+    target_link_libraries(tdmd_m6_tests PRIVATE
+      tdmd::core tdmd::io tdmd::domain tdmd::neighbors tdmd::potentials tdmd::integrator tdmd::scheduler tdmd::comm
+      GTest::gtest
+      MPI::MPI_CXX
+    )
+    target_compile_definitions(tdmd_m6_tests PRIVATE
+      TDMD_TEST_DATA_DIR="${TDMD_TEST_DATA_DIR}"
+    )
+    set_target_properties(tdmd_m6_tests PROPERTIES
+      CUDA_SEPARABLE_COMPILATION ON
+    )
+    add_test(NAME HybridPipeline.DeterministicMatchesM5
+      COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 4 $<TARGET_FILE:tdmd_m6_tests> --gtest_filter=HybridPipeline.DeterministicMatchesM5)
+    add_test(NAME HybridPipeline.PipelineNVEConservation
+      COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 4 $<TARGET_FILE:tdmd_m6_tests> --gtest_filter=HybridPipeline.PipelineNVEConservation)
+    add_test(NAME HybridPipeline.ZoneTimeStepsAdvance
+      COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 4 $<TARGET_FILE:tdmd_m6_tests> --gtest_filter=HybridPipeline.ZoneTimeStepsAdvance)
   endif()
 endif()

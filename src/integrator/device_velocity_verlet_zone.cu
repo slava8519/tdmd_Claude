@@ -45,15 +45,15 @@ __global__ void drift_zone_kernel(Vec3* __restrict__ positions,
 
   if (pbc_x) {
     if (px < box_lo.x) px += box_size.x;
-    else if (px >= box_lo.x + box_size.x) px -= box_size.x;
+    if (px >= box_lo.x + box_size.x) px -= box_size.x;
   }
   if (pbc_y) {
     if (py < box_lo.y) py += box_size.y;
-    else if (py >= box_lo.y + box_size.y) py -= box_size.y;
+    if (py >= box_lo.y + box_size.y) py -= box_size.y;
   }
   if (pbc_z) {
     if (pz < box_lo.z) pz += box_size.z;
-    else if (pz >= box_lo.z + box_size.z) pz -= box_size.z;
+    if (pz >= box_lo.z + box_size.z) pz -= box_size.z;
   }
 
   positions[i].x = px;

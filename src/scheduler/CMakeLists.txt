@@ -5,6 +5,7 @@ if(TDMD_ENABLE_CUDA AND TDMD_ENABLE_MPI)
     stream_pool.cu
     pipeline_scheduler.cu
     distributed_pipeline_scheduler.cu
+    hybrid_pipeline_scheduler.cu
   )
   set_target_properties(tdmd_scheduler PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
   target_link_libraries(tdmd_scheduler PUBLIC tdmd::core tdmd::domain tdmd::neighbors tdmd::potentials tdmd::integrator tdmd::comm)

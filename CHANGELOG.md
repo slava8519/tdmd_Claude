@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-04-08
+
+### Added
+- `domain/SpatialDecomp` — 1D Y-axis slab decomposition for spatial subdomain partitioning.
+- `scheduler/HybridPipelineScheduler` — 2D time × space pipeline scheduler with MPI_Cart topology.
+- 2D MPI Cartesian communicator: `[P_time, P_space]`, split into time_comm (TD ring) and space_comm (halo exchange).
+- Ghost atom halo exchange on space_comm with deduplication by atom ID.
+- 3 new M6 tests: DeterministicMatchesM5 (4-rank), PipelineNVEConservation (4-rank), ZoneTimeStepsAdvance (4-rank).
+
+### Fixed
+- PBC wrapping in GPU drift kernel: `if/else if` → `if/if` to prevent atoms at `box.hi` after wrap-from-below. This caused atoms to leave their spatial subdomain and break ghost exchange.
+
+### Notes
+- **M6 complete.** Core exit criteria met. 63 tests passing (60 M0-M5 + 3 M6 hybrid MPI).
+- 4-rank hybrid (P_time=2, P_space=2) matches M4 single-rank within 1e-6.
+- 4-rank hybrid NVE conservation |dE/E| < 1e-4 over 500 steps.
+- Multi-GPU scaling benchmarks deferred (single-GPU dev machine).
+- Next: M7 (NVT/NPT + adaptive Δt + optimizations).
+
 ## [0.5.0] - 2026-04-08
 
 ### Added
