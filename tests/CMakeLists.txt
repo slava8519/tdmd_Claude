@@ -52,6 +52,7 @@ if(TDMD_ENABLE_CUDA)
     unit/test_device_lammps_ab.cu
     unit/test_device_nve_drift.cu
     unit/test_pipeline_scheduler.cu
+    unit/test_nvt_thermostat.cu
   )
   target_link_libraries(tdmd_cuda_tests PRIVATE
     tdmd::core tdmd::io tdmd::domain tdmd::neighbors tdmd::potentials tdmd::integrator tdmd::scheduler

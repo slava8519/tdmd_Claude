@@ -1,6 +1,6 @@
 # integrator module — time integration
 if(TDMD_ENABLE_CUDA)
-  add_library(tdmd_integrator STATIC velocity_verlet.cpp device_velocity_verlet.cu device_velocity_verlet_zone.cu)
+  add_library(tdmd_integrator STATIC velocity_verlet.cpp device_velocity_verlet.cu device_velocity_verlet_zone.cu device_nose_hoover.cu)
   set_target_properties(tdmd_integrator PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 else()
   add_library(tdmd_integrator STATIC velocity_verlet.cpp)

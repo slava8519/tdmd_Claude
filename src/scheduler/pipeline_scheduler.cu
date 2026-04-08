@@ -8,6 +8,7 @@
 
 #include "../core/device_buffer.cuh"
 #include "../core/error.hpp"
+#include "../integrator/device_nose_hoover.cuh"
 #include "../integrator/device_velocity_verlet_zone.cuh"
 #include "../potentials/device_morse_zone.cuh"
 
@@ -26,6 +27,17 @@ PipelineScheduler::PipelineScheduler(const Box& box, i32 natoms,
   partition_.build_zone_neighbors(params_.rc + cfg_.r_skin);
 
   zone_stream_.assign(static_cast<std::size_t>(partition_.n_zones()), -1);
+
+  // Initialize NVT thermostat if requested.
+  if (cfg_.t_target > 0) {
+    integrator::NHCConfig nhc_cfg;
+    nhc_cfg.t_target = cfg_.t_target;
+    nhc_cfg.t_period = cfg_.t_period;
+    nhc_cfg.chain_length = cfg_.nhc_length;
+    i32 n_dof = 3 * natoms_ - 3;  // translational DOF
+    nhc_ = std::make_unique<integrator::NoseHooverChain>(nhc_cfg, cfg_.dt,
+                                                         n_dof);
+  }
 }
 
 void PipelineScheduler::upload(const Vec3* positions, const Vec3* velocities,
@@ -217,11 +229,44 @@ void PipelineScheduler::run_until(i32 target_step) {
       rebuild_nlist();
     }
 
-    bool progress = tick();
-    if (!progress) {
-      // No zone could launch — drain pipeline and try again.
+    if (nhc_) {
+      // NVT mode: drain pipeline, apply thermostat globally, then advance
+      // all zones in one synchronized step. Pipelined NVT is future work.
       TDMD_CUDA_CHECK(cudaDeviceSynchronize());
       poll_completions();
+
+      // Pre-step NHC half-step: compute KE, get scale factor, scale
+      // velocities.
+      real ke = integrator::device_compute_ke(d_vel_.data(), d_types_.data(),
+                                              d_masses_.data(), natoms_);
+      real scale1 = nhc_->half_step(ke);
+      integrator::device_scale_velocities(d_vel_.data(), natoms_, scale1);
+      TDMD_CUDA_CHECK(cudaDeviceSynchronize());
+
+      // Advance all zones (one synchronized step).
+      bool progress = tick();
+      if (!progress) {
+        TDMD_CUDA_CHECK(cudaDeviceSynchronize());
+        poll_completions();
+      }
+      // Drain to ensure all zones finished this step.
+      TDMD_CUDA_CHECK(cudaDeviceSynchronize());
+      poll_completions();
+
+      // Post-step NHC half-step.
+      ke = integrator::device_compute_ke(d_vel_.data(), d_types_.data(),
+                                         d_masses_.data(), natoms_);
+      real scale2 = nhc_->half_step(ke);
+      integrator::device_scale_velocities(d_vel_.data(), natoms_, scale2);
+      TDMD_CUDA_CHECK(cudaDeviceSynchronize());
+    } else {
+      // NVE mode: normal pipelined execution.
+      bool progress = tick();
+      if (!progress) {
+        // No zone could launch — drain pipeline and try again.
+        TDMD_CUDA_CHECK(cudaDeviceSynchronize());
+        poll_completions();
+      }
     }
   }
 

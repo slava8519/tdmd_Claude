@@ -8,12 +8,14 @@
 // - Deterministic mode (single stream, sequential — bit-identical to M3)
 #pragma once
 
+#include <memory>
 #include <vector>
 
 #include "../core/box.hpp"
 #include "../core/device_buffer.cuh"
 #include "../core/types.hpp"
 #include "../domain/zone_partition.hpp"
+#include "../integrator/device_nose_hoover.cuh"
 #include "../neighbors/device_neighbor_list.cuh"
 #include "../potentials/device_morse.cuh"
 #include "stream_pool.cuh"
@@ -28,6 +30,11 @@ struct PipelineConfig {
   i32 n_streams{4};       // CUDA stream pool size
   i32 rebuild_every{10};  // neighbor list rebuild interval
   bool deterministic{false};  // single stream, sequential walk
+
+  // NVT thermostat (Nosé-Hoover chain). Enabled when t_target > 0.
+  real t_target{0};       // target temperature (K). 0 = NVE mode.
+  real t_period{0.1};     // NHC coupling period (ps). LAMMPS Tdamp.
+  i32 nhc_length{3};      // NHC chain length.
 };
 
 /// @brief Telemetry counters for the pipeline.
@@ -88,6 +95,9 @@ class PipelineScheduler {
   std::vector<i32> zone_stream_;
 
   PipelineStats stats_;
+
+  // NVT thermostat (null in NVE mode).
+  std::unique_ptr<integrator::NoseHooverChain> nhc_;
 
   /// @brief Check if zone z can advance (I-2 causal dependency).
   [[nodiscard]] bool check_deps(i32 z_id) const;
