@@ -10,6 +10,7 @@
 
 #include "../core/device_buffer.cuh"
 #include "../core/error.hpp"
+#include "../integrator/device_nose_hoover.cuh"
 #include "../integrator/device_velocity_verlet_zone.cuh"
 #include "../potentials/device_morse_zone.cuh"
 
@@ -78,6 +79,34 @@ DistributedPipelineScheduler::DistributedPipelineScheduler(
   ghost_time_steps_.assign(ghost_zones_.size(), 0);
 
   compute_boundary_zones();
+
+  // Compute contiguous atom range for locally-owned zones.
+  // Zones are sorted by position and ranks own contiguous zone subsets,
+  // so owned atoms are a contiguous block after assign_atoms().
+  first_local_atom_ = 0;
+  local_atom_count_ = 0;
+  bool found_first = false;
+  for (i32 z = 0; z < partition_.n_zones(); ++z) {
+    if (partition_.is_local(z, rank_)) {
+      const auto& zone = partition_.zones()[static_cast<std::size_t>(z)];
+      if (!found_first) {
+        first_local_atom_ = zone.atom_offset;
+        found_first = true;
+      }
+      local_atom_count_ += zone.natoms_in_zone;
+    }
+  }
+
+  // Initialize NVT thermostat if requested.
+  if (cfg_.t_target > 0) {
+    integrator::NHCConfig nhc_cfg;
+    nhc_cfg.t_target = cfg_.t_target;
+    nhc_cfg.t_period = cfg_.t_period;
+    nhc_cfg.chain_length = cfg_.nhc_length;
+    i32 n_dof = 3 * natoms_ - 3;  // global DOF
+    nhc_ = std::make_unique<integrator::NoseHooverChain>(nhc_cfg, cfg_.dt,
+                                                         n_dof);
+  }
 }
 
 void DistributedPipelineScheduler::compute_boundary_zones() {
@@ -381,15 +410,50 @@ void DistributedPipelineScheduler::run_until(i32 target_step) {
 
   // Use global minimum so all ranks enter/exit the loop together.
   while (min_global_time_step() < target_step) {
-    // Advance local zones that have deps met.
-    tick();
+    if (nhc_) {
+      // NVT mode: drain, thermostat, advance, thermostat.
+      TDMD_CUDA_CHECK(cudaDeviceSynchronize());
+      poll_completions();
+      exchange_boundary_data();
 
-    // Ensure GPU work is done before exchanging data.
-    TDMD_CUDA_CHECK(cudaDeviceSynchronize());
-    poll_completions();
+      // Pre-step NHC: compute local KE → Allreduce → scale.
+      real local_ke = integrator::device_compute_ke(
+          d_vel_.data() + first_local_atom_,
+          d_types_.data() + first_local_atom_, d_masses_.data(),
+          local_atom_count_);
+      real global_ke = 0;
+      MPI_Allreduce(&local_ke, &global_ke, 1, MPI_DOUBLE, MPI_SUM, comm_);
 
-    // Synchronous boundary exchange — all ranks call this together.
-    exchange_boundary_data();
+      real scale1 = nhc_->half_step(global_ke);
+      integrator::device_scale_velocities_zone(
+          d_vel_.data(), first_local_atom_, local_atom_count_, scale1);
+      TDMD_CUDA_CHECK(cudaDeviceSynchronize());
+
+      // Advance one step.
+      tick();
+      TDMD_CUDA_CHECK(cudaDeviceSynchronize());
+      poll_completions();
+      exchange_boundary_data();
+
+      // Post-step NHC.
+      local_ke = integrator::device_compute_ke(
+          d_vel_.data() + first_local_atom_,
+          d_types_.data() + first_local_atom_, d_masses_.data(),
+          local_atom_count_);
+      global_ke = 0;
+      MPI_Allreduce(&local_ke, &global_ke, 1, MPI_DOUBLE, MPI_SUM, comm_);
+
+      real scale2 = nhc_->half_step(global_ke);
+      integrator::device_scale_velocities_zone(
+          d_vel_.data(), first_local_atom_, local_atom_count_, scale2);
+      TDMD_CUDA_CHECK(cudaDeviceSynchronize());
+    } else {
+      // NVE mode: normal pipelined execution.
+      tick();
+      TDMD_CUDA_CHECK(cudaDeviceSynchronize());
+      poll_completions();
+      exchange_boundary_data();
+    }
 
     // Rebuild neighbor list (synchronized via min_global).
     i32 global_min = min_global_time_step();

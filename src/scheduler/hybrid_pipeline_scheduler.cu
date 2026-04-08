@@ -17,6 +17,7 @@
 
 #include "../core/device_buffer.cuh"
 #include "../core/error.hpp"
+#include "../integrator/device_nose_hoover.cuh"
 #include "../integrator/device_velocity_verlet_zone.cuh"
 #include "../potentials/device_morse_zone.cuh"
 
@@ -117,6 +118,17 @@ HybridPipelineScheduler::HybridPipelineScheduler(
   // Spatial decomposition (Y-axis).
   spatial_.build(box_, space_size_, space_rank_,
                  params_.rc + cfg_.r_skin);
+
+  // Initialize NVT thermostat if requested.
+  if (cfg_.t_target > 0) {
+    integrator::NHCConfig nhc_cfg;
+    nhc_cfg.t_target = cfg_.t_target;
+    nhc_cfg.t_period = cfg_.t_period;
+    nhc_cfg.chain_length = cfg_.nhc_length;
+    i32 n_dof = 3 * natoms_global_ - 3;  // global DOF
+    nhc_ = std::make_unique<integrator::NoseHooverChain>(nhc_cfg, cfg_.dt,
+                                                         n_dof);
+  }
 }
 
 HybridPipelineScheduler::~HybridPipelineScheduler() {
@@ -742,16 +754,49 @@ void HybridPipelineScheduler::run_until(i32 target_step) {
 
   i32 last_rebuild_step = 0;
   while (min_global_time_step() < target_step) {
-    tick();
+    if (nhc_) {
+      // NVT mode: drain, thermostat, advance, thermostat.
+      TDMD_CUDA_CHECK(cudaDeviceSynchronize());
+      poll_completions();
+      td_exchange_boundary_data();
+      halo_exchange();
 
-    TDMD_CUDA_CHECK(cudaDeviceSynchronize());
-    poll_completions();
+      // Pre-step NHC: compute local KE → Allreduce → scale.
+      real local_ke = integrator::device_compute_ke(
+          d_vel_.data(), d_types_.data(), d_masses_.data(), n_owned_);
+      real global_ke = 0;
+      MPI_Allreduce(&local_ke, &global_ke, 1, MPI_DOUBLE, MPI_SUM,
+                     world_comm_);
 
-    // TD boundary exchange on time_comm.
-    td_exchange_boundary_data();
+      real scale1 = nhc_->half_step(global_ke);
+      integrator::device_scale_velocities(d_vel_.data(), n_owned_, scale1);
+      TDMD_CUDA_CHECK(cudaDeviceSynchronize());
 
-    // Halo exchange on space_comm (update ghost positions after integration).
-    halo_exchange();
+      // Advance one step.
+      tick();
+      TDMD_CUDA_CHECK(cudaDeviceSynchronize());
+      poll_completions();
+      td_exchange_boundary_data();
+      halo_exchange();
+
+      // Post-step NHC.
+      local_ke = integrator::device_compute_ke(d_vel_.data(), d_types_.data(),
+                                               d_masses_.data(), n_owned_);
+      global_ke = 0;
+      MPI_Allreduce(&local_ke, &global_ke, 1, MPI_DOUBLE, MPI_SUM,
+                     world_comm_);
+
+      real scale2 = nhc_->half_step(global_ke);
+      integrator::device_scale_velocities(d_vel_.data(), n_owned_, scale2);
+      TDMD_CUDA_CHECK(cudaDeviceSynchronize());
+    } else {
+      // NVE mode: normal pipelined execution.
+      tick();
+      TDMD_CUDA_CHECK(cudaDeviceSynchronize());
+      poll_completions();
+      td_exchange_boundary_data();
+      halo_exchange();
+    }
 
     // Rebuild neighbor list periodically.
     i32 global_min = min_global_time_step();

@@ -7,6 +7,7 @@
 // enable cross-rank dependency checking.
 #pragma once
 
+#include <memory>
 #include <vector>
 
 #include <mpi.h>
@@ -15,6 +16,7 @@
 #include "../core/device_buffer.cuh"
 #include "../core/types.hpp"
 #include "../domain/zone_partition.hpp"
+#include "../integrator/device_nose_hoover.cuh"
 #include "../neighbors/device_neighbor_list.cuh"
 #include "../potentials/device_morse.cuh"
 #include "stream_pool.cuh"
@@ -29,6 +31,11 @@ struct DistributedConfig {
   i32 n_streams{4};
   i32 rebuild_every{10};
   bool deterministic{false};
+
+  // NVT thermostat (Nosé-Hoover chain). Enabled when t_target > 0.
+  real t_target{0};       // target temperature (K). 0 = NVE mode.
+  real t_period{0.1};     // NHC coupling period (ps).
+  i32 nhc_length{3};      // NHC chain length.
 };
 
 struct DistributedStats {
@@ -100,6 +107,13 @@ class DistributedPipelineScheduler {
   std::vector<i32> send_to_prev_zones_;
 
   DistributedStats stats_;
+
+  // NVT thermostat (null in NVE mode).
+  std::unique_ptr<integrator::NoseHooverChain> nhc_;
+
+  // Atom range for locally-owned zones (contiguous after zone sort).
+  i32 first_local_atom_{0};
+  i32 local_atom_count_{0};
 
   [[nodiscard]] bool check_deps(i32 z_id) const;
   [[nodiscard]] i32 zone_time_step(i32 z_id) const;

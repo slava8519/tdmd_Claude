@@ -12,6 +12,7 @@
 // sorted by zone. Ghost atoms are appended after owned atoms.
 #pragma once
 
+#include <memory>
 #include <vector>
 
 #include <mpi.h>
@@ -21,6 +22,7 @@
 #include "../core/types.hpp"
 #include "../domain/spatial_decomp.hpp"
 #include "../domain/zone_partition.hpp"
+#include "../integrator/device_nose_hoover.cuh"
 #include "../neighbors/device_neighbor_list.cuh"
 #include "../potentials/device_morse.cuh"
 #include "stream_pool.cuh"
@@ -37,6 +39,11 @@ struct HybridConfig {
   bool deterministic{false};
   i32 p_time{1};   ///< Number of time groups.
   i32 p_space{1};  ///< Number of spatial ranks per time group.
+
+  // NVT thermostat (Nosé-Hoover chain). Enabled when t_target > 0.
+  real t_target{0};       // target temperature (K). 0 = NVE mode.
+  real t_period{0.1};     // NHC coupling period (ps).
+  i32 nhc_length{3};      // NHC chain length.
 };
 
 struct HybridStats {
@@ -136,6 +143,9 @@ class HybridPipelineScheduler {
   std::vector<i32> send_next_indices_;  ///< Owned atom indices near upper Y.
 
   HybridStats stats_;
+
+  // NVT thermostat (null in NVE mode).
+  std::unique_ptr<integrator::NoseHooverChain> nhc_;
 
   [[nodiscard]] bool check_deps(i32 z_id) const;
   [[nodiscard]] i32 zone_time_step(i32 z_id) const;
