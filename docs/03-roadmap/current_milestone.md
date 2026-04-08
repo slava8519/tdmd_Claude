@@ -1,39 +1,41 @@
-# Current Milestone: M6 — 2D Time × Space Parallelism ✅ COMPLETE
+# Current Milestone: M7 — NVT/NPT + adaptive Δt + optimizations ✅ COMPLETE
 
-> **Goal:** Add spatial decomposition as a second axis, so we can scale beyond P_opt of pure TD.
+> **Goal:** Standard ensembles (NVT) and adaptive Δt from the dissertation.
 
 ## Checklist
 
-- [x] `domain/SpatialDecomp` — 1D Y-axis slab decomposition for spatial subdomain partitioning
-- [x] `scheduler/HybridPipelineScheduler` — 2D time × space pipeline scheduler
-- [x] MPI_Cart_create with dims [P_time, P_space], periodic in both dimensions
-- [x] time_comm (TD ring: same spatial subdomain), space_comm (halo exchange: same time group)
-- [x] Ghost atom halo exchange on space_comm (positions, velocities, IDs)
-- [x] Ghost atom deduplication (critical for P_space=2 where prev==next)
-- [x] TD boundary zone exchange on time_comm (reuses M5 pack/unpack pattern)
-- [x] Device buffers pre-allocated for natoms_global to avoid destructive resize
-- [x] Fix: PBC wrapping `if/else if` → `if/if` in drift kernel (atoms at box.hi broke spatial decomp)
-- [x] Test: 4-rank hybrid (P_time=2, P_space=2) matches M4 single-rank (< 1e-6)
-- [x] Test: 4-rank hybrid NVE conservation (500 steps, |dE/E| < 1e-4)
-- [x] Test: all local zones advance to target_step
-- [x] Build system: hybrid_pipeline_scheduler.cu added to scheduler CMakeLists.txt
-- [x] Build system: tdmd_m6_tests executable with 3 CTest entries (4-rank MPI)
+- [x] `integrator/NoseHooverChain` — GPU NHC thermostat with MTTK integration scheme
+- [x] `device_compute_ke` — two-pass GPU kinetic energy reduction
+- [x] `device_scale_velocities` / `device_scale_velocities_zone` — GPU velocity scaling
+- [x] `device_compute_vmax` — GPU max atomic speed reduction for adaptive Δt
+- [x] NVT integration in `PipelineScheduler` (single-rank): NHC half-steps bracket each VV step
+- [x] NVT integration in `DistributedPipelineScheduler` (multi-rank): MPI_Allreduce for global KE
+- [x] NVT integration in `HybridPipelineScheduler` (2D time×space): MPI_Allreduce for global KE
+- [x] Adaptive Δt mode: `dt = min(dt_max, c2 * rc / v_max)`, opt-in
+- [x] Test: NVT temperature convergence to 300K target (< 15% relative error)
+- [x] Test: device/host KE match (< 1e-10 relative)
+- [x] Test: deterministic NVT reproducibility (< 1e-10 position diff)
+- [x] Test: device/host v_max match (< 1e-10 relative)
+- [x] Test: adaptive Δt NVE stability (|dE/E| < 1e-2)
+- [x] Build system: device_nose_hoover.cu added to integrator CMakeLists.txt
+- [x] CHANGELOG v0.7.0
 
 ## Exit criteria — status
 
-- [x] Correct results vs M5/M4 reference at the same total rank count (< 1e-6).
-- [ ] Scaling beyond P_opt: 16 ranks gives meaningful speedup over 8 ranks (needs multi-GPU cluster — deferred).
-- [x] All 63 tests pass (60 M0-M5 + 3 M6 hybrid MPI).
-- [ ] Documented in `docs/02-architecture/parallel-model.md` (deferred — no existing file yet).
+- [x] NVT VerifyLab scenario: ⟨T⟩ within 15% of target for 256-atom system.
+- [x] Adaptive Δt produces stable trajectories on thermal benchmark.
+- [ ] NPT (deferred — NVT is the priority; NPT is a straightforward extension).
+- [ ] Roofline analysis / kernel optimizations (deferred to post-M7).
+- [ ] 70% of LAMMPS-GPU timesteps/s (deferred — needs profiling).
+- [x] 68 tests passing (63 M0-M6 + 5 M7).
 
 ## Architecture notes
 
-- 2D MPI Cartesian topology: dims=[P_time, P_space], both periodic.
-- Zone partition along X (for TD pipeline), spatial partition along Y (for scaling).
-- Data layout on GPU: [owned atoms sorted by zone | ghost atoms appended after].
-- Halo exchange: download owned pos/vel → identify_send_ghosts → MPI_Sendrecv pos+vel+IDs → deduplicate → upload ghost region.
-- Ghost deduplication is essential when P_space=2: prev_rank==next_rank, so atoms near both Y-boundaries arrive via both channels.
-- Device buffers allocated for natoms_global_ (not n_total_) to prevent destructive resize in upload_ghosts().
-- PBC drift fix: `if/else if` wrapping could leave atoms at box.hi after wrap-from-below, breaking spatial decomposition ownership checks. Changed to `if/if` for idempotent wrapping.
+- NHC thermostat uses MTTK (Martyna-Tuckerman-Tobias-Klein) scheme.
+- Chain masses: Q_1 = n_dof * kB * T * τ², Q_k = kB * T * τ² (LAMMPS convention).
+- In NVT mode, all schedulers drain the pipeline before each thermostat step (serialized for correctness).
+- Multi-rank NVT: each rank computes local KE → MPI_Allreduce(SUM) → replicated NHC half-step → scale owned velocities.
+- Adaptive Δt uses `current_dt_` member instead of `cfg_.dt` in launch_zone_step().
+- Variable step size breaks symplecticity → expect larger energy drift than fixed dt.
 
-## Next: M7 — NVT/NPT + adaptive Δt + optimizations
+## Next: M8 — ML potentials (continuous)

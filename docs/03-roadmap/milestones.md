@@ -26,7 +26,7 @@
 | M4 | TD scheduler (full pipeline, in-process) | 5 weeks | ✅ |
 | M5 | MPI ring parallelization | 6 weeks | ✅ |
 | M6 | 2D time × space parallelism | 4 weeks | ✅ |
-| M7 | NVT/NPT + adaptive Δt + optimizations | 4 weeks | ⬜ |
+| M7 | NVT/NPT + adaptive Δt + optimizations | 4 weeks | ✅ |
 | M8 | ML potentials (continuous) | ongoing | ⬜ |
 
 Total to M7: **~32 weeks**.

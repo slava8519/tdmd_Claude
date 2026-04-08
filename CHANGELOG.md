@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-04-08
+
+### Added
+- `integrator/device_nose_hoover` — GPU Nosé-Hoover chain (NHC) thermostat with MTTK integration.
+  - `device_compute_ke`: two-pass GPU kinetic energy reduction (per-block partial sums, host final sum).
+  - `device_scale_velocities` / `device_scale_velocities_zone`: GPU velocity scaling kernels.
+  - `device_compute_vmax`: GPU max atomic speed reduction for adaptive Δt.
+  - `NoseHooverChain`: host-side MTTK chain integration, returns velocity scale factor.
+- NVT support in all three schedulers: PipelineScheduler, DistributedPipelineScheduler, HybridPipelineScheduler.
+  - Pipeline is drained each step in NVT mode for correctness (pipelined NVT is future work).
+  - Multi-rank schedulers use MPI_Allreduce for global KE before NHC half-step.
+- Adaptive Δt mode: `dt = min(dt_max, c2 * rc / v_max)`, opt-in via `PipelineConfig::adaptive_dt`.
+- 5 new tests: NVT temperature convergence, device/host KE match, deterministic NVT reproducibility, device/host v_max match, adaptive Δt NVE stability.
+
+### Notes
+- **M7 NVT + adaptive Δt complete.** 68 tests passing (63 M0-M6 + 5 M7).
+- NVT ⟨T⟩ converges to 300K target within 15% for 256-atom Cu FCC.
+- Adaptive Δt NVE drift |dE/E| < 1e-2 over 1000 steps (expected: variable step size breaks symplecticity slightly).
+- NPT, kernel optimizations, and roofline analysis deferred to post-M7.
+- Next: M8 (ML potentials).
+
 ## [0.6.0] - 2026-04-08
 
 ### Added
