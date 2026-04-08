@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Architecture
+- ADR 0005 (batched kernels) — **Implemented**. `FastPipelineScheduler` in `src/scheduler/fast_pipeline_scheduler.{cuh,cu}`.
+- Stream parameter (`cudaStream_t stream = 0`) added to 5 device functions (`device_half_kick`, `device_drift`, `device_zero_forces`, `compute_morse_gpu`, `DeviceNeighborList::build`). Backward-compatible via default argument.
+
+### Performance
+- TDMD small (4000 atoms, Morse, FP32): 9,828 ts/s (vs old 566 ts/s, **17.4x improvement**).
+- TDMD medium (32000 atoms, Morse, FP32): 7,638 ts/s (vs old 517 ts/s, **14.8x improvement**).
+- TDMD medium is **2.38x faster** than LAMMPS-GPU on same hardware (RTX 5080, Morse potential).
+- TDMD small reaches 79% of LAMMPS-GPU performance (bottleneck: neighbor list rebuild).
+- Energy conservation: FP64 drift 3.93e-16 (machine epsilon), FP32 drift 3.52e-07 at 10k steps.
+
+### Added
+- `scheduler/FastPipelineScheduler` — batched single-GPU scheduler (ADR 0005 Phase 2).
+  - 5 kernel launches per step (half_kick, drift, zero_forces, morse, half_kick).
+  - Dedicated non-default CUDA stream, single sync at end of `run_until()`.
+  - `FastPipelineStats` telemetry: ticks, kernel_launches, rebuilds.
+- `benchmarks/phase1_baseline/` — measurement infrastructure with `bench_pipeline_scheduler`, LAMMPS baseline scripts, `validate_inputs.py`.
+- `tests/unit/test_fast_pipeline.cu` — NVE conservation, long NVE drift (10k steps), kernel launch invariant tests.
+- `docs/05-benchmarks/phase2-batched-scheduler-results.md` — full results and analysis of Phase 2.
+- LAMMPS baseline inputs for small and medium systems.
+
+### Documented
+- ADR 0005 status updated to Implemented with full measurement tables and nsys breakdown.
+- Roadmap updated: Phase 3a (neighbor list optimization), Phase 4 (EAM migration) added with estimates.
+- M7 performance exit criterion marked as exceeded (2.38x LAMMPS-GPU on medium).
+- Measurement exclusivity rule documented (no parallel benchmarks on the same GPU).
+- `docs/02-architecture/gpu-strategy.md` — rewritten with three-level parallelism model.
+- `docs/02-architecture/scheduler.md` — pseudocode rewritten for batched launch model.
+- `docs/02-architecture/parallel-model.md` — added three-level parallelism table.
+
+### Notes
+- **ADR 0005 Phase 2 complete.** Per-zone PipelineScheduler preserved unchanged as baseline.
+- FP32 is production-safe: linear drift extrapolates to 1e-3 threshold at ~30M steps.
+- Main remaining bottleneck: `DeviceNeighborList::build` (42% GPU time, 175 us/call vs LAMMPS 60 us/call).
+
 ## [0.7.0] - 2026-04-08
 
 ### Added
