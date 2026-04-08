@@ -51,9 +51,10 @@ if(TDMD_ENABLE_CUDA)
     unit/test_device_eam.cu
     unit/test_device_lammps_ab.cu
     unit/test_device_nve_drift.cu
+    unit/test_pipeline_scheduler.cu
   )
   target_link_libraries(tdmd_cuda_tests PRIVATE
-    tdmd::core tdmd::io tdmd::domain tdmd::neighbors tdmd::potentials tdmd::integrator
+    tdmd::core tdmd::io tdmd::domain tdmd::neighbors tdmd::potentials tdmd::integrator tdmd::scheduler
     GTest::gtest_main
   )
   target_compile_definitions(tdmd_cuda_tests PRIVATE
@@ -63,4 +64,29 @@ if(TDMD_ENABLE_CUDA)
     CUDA_SEPARABLE_COMPILATION ON
   )
   gtest_discover_tests(tdmd_cuda_tests)
+
+  # ---- MPI + CUDA tests (M5+) ----
+  if(TDMD_ENABLE_MPI)
+    add_executable(tdmd_mpi_tests
+      unit/test_distributed_pipeline.cu
+    )
+    target_link_libraries(tdmd_mpi_tests PRIVATE
+      tdmd::core tdmd::io tdmd::domain tdmd::neighbors tdmd::potentials tdmd::integrator tdmd::scheduler tdmd::comm
+      GTest::gtest
+      MPI::MPI_CXX
+    )
+    target_compile_definitions(tdmd_mpi_tests PRIVATE
+      TDMD_TEST_DATA_DIR="${TDMD_TEST_DATA_DIR}"
+    )
+    set_target_properties(tdmd_mpi_tests PROPERTIES
+      CUDA_SEPARABLE_COMPILATION ON
+    )
+    # MPI tests must be run with mpirun, not gtest_discover_tests.
+    add_test(NAME DistributedPipeline.DeterministicMatchesSingleRank
+      COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 $<TARGET_FILE:tdmd_mpi_tests> --gtest_filter=DistributedPipeline.DeterministicMatchesSingleRank)
+    add_test(NAME DistributedPipeline.PipelineNVEConservation
+      COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 $<TARGET_FILE:tdmd_mpi_tests> --gtest_filter=DistributedPipeline.PipelineNVEConservation)
+    add_test(NAME DistributedPipeline.ZoneTimeStepsAdvance
+      COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 $<TARGET_FILE:tdmd_mpi_tests> --gtest_filter=DistributedPipeline.ZoneTimeStepsAdvance)
+  endif()
 endif()

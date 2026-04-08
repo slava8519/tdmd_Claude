@@ -1,6 +1,6 @@
 # potentials module — pair and many-body force evaluation
 if(TDMD_ENABLE_CUDA)
-  add_library(tdmd_potentials STATIC force_compute.cpp eam_alloy.cpp device_morse.cu device_eam.cu)
+  add_library(tdmd_potentials STATIC force_compute.cpp eam_alloy.cpp device_morse.cu device_eam.cu device_morse_zone.cu)
   set_target_properties(tdmd_potentials PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 else()
   add_library(tdmd_potentials STATIC force_compute.cpp eam_alloy.cpp)
