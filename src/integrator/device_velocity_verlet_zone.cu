@@ -21,13 +21,21 @@ __global__ void half_kick_zone_kernel(Vec3* __restrict__ velocities,
   if (tid >= atom_count) return;
   int i = first_atom + tid;
 
-  i32 type = types[i];
-  real mass = masses[type];
-  real factor = half_dt / (mass * kMvv2e);
+  // ADR 0007 Integrator math contract: all arithmetic in double.
+  double d_half_dt = static_cast<double>(half_dt);
+  double mass = static_cast<double>(masses[types[i]]);
+  double factor = d_half_dt / (mass * kMvv2e);
 
-  velocities[i].x += factor * forces[i].x;
-  velocities[i].y += factor * forces[i].y;
-  velocities[i].z += factor * forces[i].z;
+  double vx = static_cast<double>(velocities[i].x) +
+              factor * static_cast<double>(forces[i].x);
+  double vy = static_cast<double>(velocities[i].y) +
+              factor * static_cast<double>(forces[i].y);
+  double vz = static_cast<double>(velocities[i].z) +
+              factor * static_cast<double>(forces[i].z);
+
+  velocities[i].x = static_cast<real>(vx);
+  velocities[i].y = static_cast<real>(vy);
+  velocities[i].z = static_cast<real>(vz);
 }
 
 __global__ void drift_zone_kernel(Vec3* __restrict__ positions,
@@ -39,26 +47,38 @@ __global__ void drift_zone_kernel(Vec3* __restrict__ positions,
   if (tid >= atom_count) return;
   int i = first_atom + tid;
 
-  real px = positions[i].x + dt * velocities[i].x;
-  real py = positions[i].y + dt * velocities[i].y;
-  real pz = positions[i].z + dt * velocities[i].z;
+  // ADR 0007 Integrator math contract: position update in double.
+  double d_dt = static_cast<double>(dt);
+  double px = static_cast<double>(positions[i].x) +
+              d_dt * static_cast<double>(velocities[i].x);
+  double py = static_cast<double>(positions[i].y) +
+              d_dt * static_cast<double>(velocities[i].y);
+  double pz = static_cast<double>(positions[i].z) +
+              d_dt * static_cast<double>(velocities[i].z);
+
+  double blx = static_cast<double>(box_lo.x);
+  double bly = static_cast<double>(box_lo.y);
+  double blz = static_cast<double>(box_lo.z);
+  double bsx = static_cast<double>(box_size.x);
+  double bsy = static_cast<double>(box_size.y);
+  double bsz = static_cast<double>(box_size.z);
 
   if (pbc_x) {
-    if (px < box_lo.x) px += box_size.x;
-    if (px >= box_lo.x + box_size.x) px -= box_size.x;
+    if (px < blx) px += bsx;
+    if (px >= blx + bsx) px -= bsx;
   }
   if (pbc_y) {
-    if (py < box_lo.y) py += box_size.y;
-    if (py >= box_lo.y + box_size.y) py -= box_size.y;
+    if (py < bly) py += bsy;
+    if (py >= bly + bsy) py -= bsy;
   }
   if (pbc_z) {
-    if (pz < box_lo.z) pz += box_size.z;
-    if (pz >= box_lo.z + box_size.z) pz -= box_size.z;
+    if (pz < blz) pz += bsz;
+    if (pz >= blz + bsz) pz -= bsz;
   }
 
-  positions[i].x = px;
-  positions[i].y = py;
-  positions[i].z = pz;
+  positions[i].x = static_cast<real>(px);
+  positions[i].y = static_cast<real>(py);
+  positions[i].z = static_cast<real>(pz);
 }
 
 __global__ void zero_forces_zone_kernel(Vec3* __restrict__ forces,

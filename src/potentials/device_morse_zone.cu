@@ -4,6 +4,7 @@
 #include "device_morse_zone.cuh"
 
 #include "../core/device_buffer.cuh"
+#include "../core/device_math.cuh"
 #include "../core/error.hpp"
 
 namespace tdmd::potentials {
@@ -15,14 +16,28 @@ __global__ void morse_force_zone_kernel(
     const i32* __restrict__ neighbors, const i32* __restrict__ offsets,
     const i32* __restrict__ counts, i32 first_atom, i32 atom_count,
     Vec3 box_lo, Vec3 box_size, bool pbc_x, bool pbc_y, bool pbc_z,
-    MorseParams params, real* __restrict__ d_energy) {
+    MorseParams params, accum_t* __restrict__ d_energy) {
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= atom_count) return;
 
   int i = first_atom + tid;
-  Vec3 pi = positions[i];
-  real fx = real{0}, fy = real{0}, fz = real{0};
-  real pe = real{0};
+
+  // Position load in double for relative-coordinate trick (ADR 0007/0008).
+  pos_t pix = positions[i].x;
+  pos_t piy = positions[i].y;
+  pos_t piz = positions[i].z;
+
+  force_t fx = 0, fy = 0, fz = 0;
+  force_t pe = 0;
+
+  const force_t bsx = static_cast<force_t>(box_size.x);
+  const force_t bsy = static_cast<force_t>(box_size.y);
+  const force_t bsz = static_cast<force_t>(box_size.z);
+  const force_t bsx_half = force_t{0.5} * bsx;
+  const force_t bsy_half = force_t{0.5} * bsy;
+  const force_t bsz_half = force_t{0.5} * bsz;
+
+  const force_t rc_sq = static_cast<force_t>(params.rc_sq);
 
   i32 offset = offsets[i];
   i32 cnt = counts[i];
@@ -30,34 +45,36 @@ __global__ void morse_force_zone_kernel(
   for (i32 k = 0; k < cnt; ++k) {
     i32 j = neighbors[offset + k];
 
-    real dx = pi.x - positions[j].x;
-    real dy = pi.y - positions[j].y;
-    real dz = pi.z - positions[j].z;
+    force_t dx = static_cast<force_t>(pix - positions[j].x);
+    force_t dy = static_cast<force_t>(piy - positions[j].y);
+    force_t dz = static_cast<force_t>(piz - positions[j].z);
 
     if (pbc_x) {
-      if (dx > box_size.x * real{0.5}) dx -= box_size.x;
-      else if (dx < -box_size.x * real{0.5}) dx += box_size.x;
+      if (dx > bsx_half) dx -= bsx;
+      else if (dx < -bsx_half) dx += bsx;
     }
     if (pbc_y) {
-      if (dy > box_size.y * real{0.5}) dy -= box_size.y;
-      else if (dy < -box_size.y * real{0.5}) dy += box_size.y;
+      if (dy > bsy_half) dy -= bsy;
+      else if (dy < -bsy_half) dy += bsy;
     }
     if (pbc_z) {
-      if (dz > box_size.z * real{0.5}) dz -= box_size.z;
-      else if (dz < -box_size.z * real{0.5}) dz += box_size.z;
+      if (dz > bsz_half) dz -= bsz;
+      else if (dz < -bsz_half) dz += bsz;
     }
 
-    real r2 = dx * dx + dy * dy + dz * dz;
-    if (r2 < params.rc_sq) {
-      real r = sqrt(r2);
-      real dr = r - params.r0;
-      real exp_val = exp(-params.alpha * dr);
-      real one_minus_exp = real{1} - exp_val;
+    force_t r2 = dx * dx + dy * dy + dz * dz;
+    if (r2 < rc_sq) {
+      force_t r = math::sqrt_impl(r2);
+      force_t dr = r - static_cast<force_t>(params.r0);
+      force_t exp_val = math::exp_impl(-static_cast<force_t>(params.alpha) * dr);
+      force_t one_minus_exp = force_t{1} - exp_val;
 
-      pe += real{0.5} * params.d * (one_minus_exp * one_minus_exp - real{1});
+      force_t D = static_cast<force_t>(params.d);
+      pe += force_t{0.5} * D * (one_minus_exp * one_minus_exp - force_t{1});
 
-      real dudr = real{2} * params.d * params.alpha * one_minus_exp * exp_val;
-      real fpair = -dudr / r;
+      force_t dudr = force_t{2} * D *
+                     static_cast<force_t>(params.alpha) * one_minus_exp * exp_val;
+      force_t fpair = -dudr / r;
 
       fx += fpair * dx;
       fy += fpair * dy;
@@ -70,7 +87,7 @@ __global__ void morse_force_zone_kernel(
   forces[i].z += fz;
 
   if (d_energy) {
-    atomicAdd(d_energy, pe);
+    atomicAdd(d_energy, static_cast<accum_t>(pe));
   }
 }
 
@@ -80,7 +97,7 @@ void compute_morse_gpu_zone(const Vec3* d_positions, Vec3* d_forces,
                             const i32* d_neighbors, const i32* d_offsets,
                             const i32* d_counts, i32 first_atom,
                             i32 atom_count, const Box& box,
-                            const MorseParams& params, real* d_energy,
+                            const MorseParams& params, accum_t* d_energy,
                             cudaStream_t stream) {
   if (atom_count == 0) return;
 

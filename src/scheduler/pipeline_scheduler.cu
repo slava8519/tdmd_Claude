@@ -234,7 +234,8 @@ void PipelineScheduler::run_until(i32 target_step) {
     if (cfg_.adaptive_dt) {
       TDMD_CUDA_CHECK(cudaDeviceSynchronize());
       poll_completions();
-      real vmax = integrator::device_compute_vmax(d_vel_.data(), natoms_);
+      real vmax = static_cast<real>(
+          integrator::device_compute_vmax(d_vel_.data(), natoms_));
       if (vmax > 0) {
         current_dt_ = std::min(cfg_.dt_max, cfg_.c2 * params_.rc / vmax);
         current_dt_ = std::max(current_dt_, cfg_.dt_min);
@@ -249,8 +250,8 @@ void PipelineScheduler::run_until(i32 target_step) {
 
       // Pre-step NHC half-step: compute KE, get scale factor, scale
       // velocities.
-      real ke = integrator::device_compute_ke(d_vel_.data(), d_types_.data(),
-                                              d_masses_.data(), natoms_);
+      accum_t ke = integrator::device_compute_ke(d_vel_.data(), d_types_.data(),
+                                                 d_masses_.data(), natoms_);
       real scale1 = nhc_->half_step(ke);
       integrator::device_scale_velocities(d_vel_.data(), natoms_, scale1);
       TDMD_CUDA_CHECK(cudaDeviceSynchronize());
@@ -265,7 +266,7 @@ void PipelineScheduler::run_until(i32 target_step) {
       TDMD_CUDA_CHECK(cudaDeviceSynchronize());
       poll_completions();
 
-      // Post-step NHC half-step.
+      // Post-step NHC half-step (ke already accum_t).
       ke = integrator::device_compute_ke(d_vel_.data(), d_types_.data(),
                                          d_masses_.data(), natoms_);
       real scale2 = nhc_->half_step(ke);

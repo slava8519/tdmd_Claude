@@ -42,9 +42,9 @@ class NoseHooverChain {
   NoseHooverChain(const NHCConfig& cfg, real dt, i32 n_dof);
 
   /// @brief Perform half-step chain update and return velocity scale factor.
-  /// @param ke_current Current total kinetic energy (in eV).
+  /// @param ke_current Current total kinetic energy (in eV, always double).
   /// @return Scale factor to multiply all velocities by.
-  [[nodiscard]] real half_step(real ke_current);
+  [[nodiscard]] real half_step(accum_t ke_current);
 
   [[nodiscard]] real t_target() const noexcept { return cfg_.t_target; }
   void set_t_target(real t) { cfg_.t_target = t; }
@@ -64,10 +64,10 @@ class NoseHooverChain {
 /// @param d_types Device array of atom types (0-based).
 /// @param d_masses Device array of per-type masses.
 /// @param natoms Number of atoms.
-/// @return Total kinetic energy in eV.
-[[nodiscard]] real device_compute_ke(const Vec3* d_velocities,
-                                    const i32* d_types, const real* d_masses,
-                                    i32 natoms);
+/// @return Total kinetic energy in eV (always double precision).
+[[nodiscard]] accum_t device_compute_ke(const Vec3* d_velocities,
+                                        const i32* d_types,
+                                        const real* d_masses, i32 natoms);
 
 /// @brief Scale all velocities by a constant factor on GPU.
 /// @param d_velocities Device array of velocities.
@@ -83,7 +83,8 @@ void device_scale_velocities_zone(Vec3* d_velocities, i32 first_atom,
 /// @brief Compute maximum atomic speed |v| on GPU.
 /// @param d_velocities Device array of velocities.
 /// @param natoms Number of atoms.
-/// @return Maximum speed (Å/ps).
-[[nodiscard]] real device_compute_vmax(const Vec3* d_velocities, i32 natoms);
+/// @return Maximum speed (Å/ps, always double precision).
+[[nodiscard]] accum_t device_compute_vmax(const Vec3* d_velocities,
+                                          i32 natoms);
 
 }  // namespace tdmd::integrator

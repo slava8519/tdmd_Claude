@@ -18,7 +18,7 @@ void compute_morse_gpu_zone(const Vec3* d_positions, Vec3* d_forces,
                             const i32* d_neighbors, const i32* d_offsets,
                             const i32* d_counts, i32 first_atom,
                             i32 atom_count, const Box& box,
-                            const MorseParams& params, real* d_energy,
+                            const MorseParams& params, accum_t* d_energy,
                             cudaStream_t stream);
 
 }  // namespace tdmd::potentials

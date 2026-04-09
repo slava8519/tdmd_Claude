@@ -2,6 +2,8 @@
 // device_morse.cuh — GPU Morse pair force kernel.
 #pragma once
 
+#include <cuda_runtime.h>
+
 #include "../core/box.hpp"
 #include "../core/device_buffer.cuh"
 #include "../core/types.hpp"
@@ -31,9 +33,11 @@ struct MorseParams {
 /// @param box         Simulation box (host, copied to kernel args).
 /// @param params      Morse parameters.
 /// @param d_energy    Optional device pointer to accumulate total PE (may be nullptr).
+/// @param stream      CUDA stream (default 0 = legacy default stream).
 void compute_morse_gpu(const Vec3* d_positions, Vec3* d_forces,
                        const i32* d_neighbors, const i32* d_offsets,
                        const i32* d_counts, i32 natoms, const Box& box,
-                       const MorseParams& params, real* d_energy);
+                       const MorseParams& params, accum_t* d_energy,
+                       cudaStream_t stream = 0);
 
 }  // namespace tdmd::potentials

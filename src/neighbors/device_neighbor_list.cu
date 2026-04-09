@@ -31,23 +31,36 @@ __global__ void build_nlist_kernel(
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i >= natoms) return;
 
-  Vec3 pi = positions[i];
+  // Position load in double for relative-coordinate trick (ADR 0007/0008).
+  pos_t pix = positions[i].x;
+  pos_t piy = positions[i].y;
+  pos_t piz = positions[i].z;
 
-  // Determine cell of atom i.
-  // Use inverse cell size derived from box_size / ncells.
+  // Cell index determination (can stay in real — no precision concern).
   real inv_cx = static_cast<real>(ncx) / box_size.x;
   real inv_cy = static_cast<real>(ncy) / box_size.y;
   real inv_cz = static_cast<real>(ncz) / box_size.z;
 
-  auto cix = static_cast<i32>((pi.x - box_lo.x) * inv_cx);
-  auto ciy = static_cast<i32>((pi.y - box_lo.y) * inv_cy);
-  auto ciz = static_cast<i32>((pi.z - box_lo.z) * inv_cz);
+  auto cix = static_cast<i32>((positions[i].x - box_lo.x) * inv_cx);
+  auto ciy = static_cast<i32>((positions[i].y - box_lo.y) * inv_cy);
+  auto ciz = static_cast<i32>((positions[i].z - box_lo.z) * inv_cz);
   if (cix >= ncx) cix = ncx - 1;
   if (ciy >= ncy) ciy = ncy - 1;
   if (ciz >= ncz) ciz = ncz - 1;
   if (cix < 0) cix = 0;
   if (ciy < 0) ciy = 0;
   if (ciz < 0) ciz = 0;
+
+  // Box dimensions and cutoff to real for distance computation.
+  // In mixed mode (real=float): relative-coordinate trick gives float distance.
+  // In fp64 mode (real=double): identity, full double precision.
+  const real bsx = static_cast<real>(box_size.x);
+  const real bsy = static_cast<real>(box_size.y);
+  const real bsz = static_cast<real>(box_size.z);
+  const real bsx_half = real{0.5} * bsx;
+  const real bsy_half = real{0.5} * bsy;
+  const real bsz_half = real{0.5} * bsz;
+  const real r_list_sq_r = static_cast<real>(r_list_sq);
 
   i32 count = 0;
   i32 offset = d_neighbors ? d_offsets[i] : 0;
@@ -76,32 +89,32 @@ __global__ void build_nlist_kernel(
           i32 j = cell_atoms[cell_start + k];
           if (j == i) continue;
 
-          // Minimum image distance.
-          real dx_ij = pi.x - positions[j].x;
-          real dy_ij = pi.y - positions[j].y;
-          real dz_ij = pi.z - positions[j].z;
+          // Relative-coordinate trick: one double subtract, then cast to real.
+          real dx_ij = static_cast<real>(pix - positions[j].x);
+          real dy_ij = static_cast<real>(piy - positions[j].y);
+          real dz_ij = static_cast<real>(piz - positions[j].z);
 
           if (pbc_x) {
-            if (dx_ij > box_size.x * real{0.5})
-              dx_ij -= box_size.x;
-            else if (dx_ij < -box_size.x * real{0.5})
-              dx_ij += box_size.x;
+            if (dx_ij > bsx_half)
+              dx_ij -= bsx;
+            else if (dx_ij < -bsx_half)
+              dx_ij += bsx;
           }
           if (pbc_y) {
-            if (dy_ij > box_size.y * real{0.5})
-              dy_ij -= box_size.y;
-            else if (dy_ij < -box_size.y * real{0.5})
-              dy_ij += box_size.y;
+            if (dy_ij > bsy_half)
+              dy_ij -= bsy;
+            else if (dy_ij < -bsy_half)
+              dy_ij += bsy;
           }
           if (pbc_z) {
-            if (dz_ij > box_size.z * real{0.5})
-              dz_ij -= box_size.z;
-            else if (dz_ij < -box_size.z * real{0.5})
-              dz_ij += box_size.z;
+            if (dz_ij > bsz_half)
+              dz_ij -= bsz;
+            else if (dz_ij < -bsz_half)
+              dz_ij += bsz;
           }
 
           real r2 = dx_ij * dx_ij + dy_ij * dy_ij + dz_ij * dz_ij;
-          if (r2 < r_list_sq) {
+          if (r2 < r_list_sq_r) {
             if (d_neighbors) {
               if (count < max_neighbors) {
                 d_neighbors[offset + count] = j;
@@ -122,7 +135,8 @@ __global__ void build_nlist_kernel(
 }  // namespace
 
 void DeviceNeighborList::build(const Vec3* d_positions, i64 natoms,
-                               const Box& box, real r_cut, real r_skin) {
+                               const Box& box, real r_cut, real r_skin,
+                               cudaStream_t stream) {
   TDMD_ASSERT(r_cut > real{0}, "r_cut must be positive");
   TDMD_ASSERT(r_skin >= real{0}, "r_skin must be non-negative");
   if (natoms == 0) return;
@@ -147,14 +161,14 @@ void DeviceNeighborList::build(const Vec3* d_positions, i64 natoms,
   int grid = (static_cast<int>(natoms) + kBlock - 1) / kBlock;
 
   // Pass 1: count neighbors only (d_neighbors = nullptr).
-  build_nlist_kernel<<<grid, kBlock>>>(
+  build_nlist_kernel<<<grid, kBlock, 0, stream>>>(
       d_positions, static_cast<i32>(natoms), cell_list_.d_cell_atoms(),
       cell_list_.d_cell_offsets(), cell_list_.d_cell_counts(),
       cell_list_.ncells_x(), cell_list_.ncells_y(), cell_list_.ncells_z(),
       box.lo, box_size, box.periodic[0], box.periodic[1], box.periodic[2],
       r_list_sq, counts_.data(), nullptr, nullptr, 0, nullptr);
   TDMD_CUDA_CHECK(cudaGetLastError());
-  TDMD_CUDA_CHECK(cudaDeviceSynchronize());
+  TDMD_CUDA_CHECK(cudaStreamSynchronize(stream));
 
   // Download counts, compute offsets on host (prefix sum).
   std::vector<i32> h_counts(un);
@@ -191,7 +205,7 @@ void DeviceNeighborList::build(const Vec3* d_positions, i64 natoms,
   d_overflow.zero();
 
   // Pass 2: fill neighbors.
-  build_nlist_kernel<<<grid, kBlock>>>(
+  build_nlist_kernel<<<grid, kBlock, 0, stream>>>(
       d_positions, static_cast<i32>(natoms), cell_list_.d_cell_atoms(),
       cell_list_.d_cell_offsets(), cell_list_.d_cell_counts(),
       cell_list_.ncells_x(), cell_list_.ncells_y(), cell_list_.ncells_z(),
@@ -199,7 +213,7 @@ void DeviceNeighborList::build(const Vec3* d_positions, i64 natoms,
       r_list_sq, counts_.data(), neighbors_.data(), offsets_.data(),
       max_neighbors_, d_overflow.data());
   TDMD_CUDA_CHECK(cudaGetLastError());
-  TDMD_CUDA_CHECK(cudaDeviceSynchronize());
+  TDMD_CUDA_CHECK(cudaStreamSynchronize(stream));
 }
 
 }  // namespace tdmd::neighbors

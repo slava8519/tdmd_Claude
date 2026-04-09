@@ -2,6 +2,8 @@
 // device_neighbor_list.cuh — GPU Verlet neighbor list (full-list).
 #pragma once
 
+#include <cuda_runtime.h>
+
 #include "../core/box.hpp"
 #include "../core/device_buffer.cuh"
 #include "../core/types.hpp"
@@ -21,8 +23,9 @@ class DeviceNeighborList {
   /// @param box Simulation box (host-side).
   /// @param r_cut Force cutoff radius.
   /// @param r_skin Skin distance.
+  /// @param stream CUDA stream (default 0 = legacy default stream).
   void build(const Vec3* d_positions, i64 natoms, const Box& box, real r_cut,
-             real r_skin);
+             real r_skin, cudaStream_t stream = 0);
 
   /// @brief Device pointer to neighbor indices (flat CSR).
   [[nodiscard]] const i32* d_neighbors() const noexcept {

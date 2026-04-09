@@ -40,7 +40,7 @@ class DeviceEam {
   void compute(const Vec3* d_positions, Vec3* d_forces, const i32* d_types,
                const i32* d_neighbors, const i32* d_offsets,
                const i32* d_counts, i32 natoms, const Box& box,
-               real* d_energy);
+               accum_t* d_energy);
 
   [[nodiscard]] real cutoff() const noexcept { return cutoff_; }
 

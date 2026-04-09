@@ -20,21 +20,24 @@ namespace tdmd::integrator {
 static constexpr int kBlock = 256;
 
 /// Per-block KE reduction kernel. Each block reduces its chunk and writes
-/// one partial sum to d_block_sums.
+/// one partial sum to d_block_sums. Accumulation always in double (accum_t).
 __global__ void ke_reduce_kernel(const Vec3* __restrict__ velocities,
                                  const i32* __restrict__ types,
                                  const real* __restrict__ masses, i32 natoms,
-                                 real* __restrict__ d_block_sums) {
-  extern __shared__ real sdata[];
+                                 accum_t* __restrict__ d_block_sums) {
+  extern __shared__ accum_t sdata[];
 
   int tid = threadIdx.x;
   int gid = blockIdx.x * blockDim.x + threadIdx.x;
 
-  real val = 0;
+  accum_t val = 0;
   if (gid < natoms) {
-    real mass = masses[types[gid]];
+    accum_t mass = static_cast<accum_t>(masses[types[gid]]);
     Vec3 v = velocities[gid];
-    val = real{0.5} * mass * kMvv2e * (v.x * v.x + v.y * v.y + v.z * v.z);
+    val = 0.5 * mass * kMvv2e *
+          (static_cast<accum_t>(v.x) * static_cast<accum_t>(v.x) +
+           static_cast<accum_t>(v.y) * static_cast<accum_t>(v.y) +
+           static_cast<accum_t>(v.z) * static_cast<accum_t>(v.z));
   }
   sdata[tid] = val;
   __syncthreads();
@@ -74,30 +77,30 @@ __global__ void scale_vel_zone_kernel(Vec3* __restrict__ velocities,
 
 // ---- Device functions ----
 
-real device_compute_ke(const Vec3* d_velocities, const i32* d_types,
-                       const real* d_masses, i32 natoms) {
+accum_t device_compute_ke(const Vec3* d_velocities, const i32* d_types,
+                          const real* d_masses, i32 natoms) {
   if (natoms == 0) return 0;
 
   int grid = (natoms + kBlock - 1) / kBlock;
 
-  // Allocate block sums on device.
-  real* d_block_sums = nullptr;
+  // Allocate block sums on device (always double).
+  accum_t* d_block_sums = nullptr;
   TDMD_CUDA_CHECK(cudaMalloc(&d_block_sums,
-                              static_cast<std::size_t>(grid) * sizeof(real)));
+                              static_cast<std::size_t>(grid) * sizeof(accum_t)));
 
-  ke_reduce_kernel<<<grid, kBlock, kBlock * sizeof(real)>>>(
+  ke_reduce_kernel<<<grid, kBlock, kBlock * sizeof(accum_t)>>>(
       d_velocities, d_types, d_masses, natoms, d_block_sums);
   TDMD_CUDA_CHECK(cudaGetLastError());
 
   // Copy block sums to host and sum.
-  std::vector<real> h_sums(static_cast<std::size_t>(grid));
+  std::vector<accum_t> h_sums(static_cast<std::size_t>(grid));
   TDMD_CUDA_CHECK(cudaMemcpy(h_sums.data(), d_block_sums,
-                              static_cast<std::size_t>(grid) * sizeof(real),
+                              static_cast<std::size_t>(grid) * sizeof(accum_t),
                               cudaMemcpyDeviceToHost));
   cudaFree(d_block_sums);
 
-  real total = 0;
-  for (real s : h_sums) total += s;
+  accum_t total = 0;
+  for (accum_t s : h_sums) total += s;
   return total;
 }
 
@@ -121,17 +124,21 @@ void device_scale_velocities_zone(Vec3* d_velocities, i32 first_atom,
 // ---- v_max reduction ----
 
 /// Per-block max speed reduction. Each block computes max |v| for its chunk.
+/// Accumulation always in double (accum_t).
 __global__ void vmax_reduce_kernel(const Vec3* __restrict__ velocities,
-                                   i32 natoms, real* __restrict__ d_block_max) {
-  extern __shared__ real sdata[];
+                                   i32 natoms,
+                                   accum_t* __restrict__ d_block_max) {
+  extern __shared__ accum_t sdata[];
 
   int tid = threadIdx.x;
   int gid = blockIdx.x * blockDim.x + threadIdx.x;
 
-  real val = 0;
+  accum_t val = 0;
   if (gid < natoms) {
     Vec3 v = velocities[gid];
-    val = v.x * v.x + v.y * v.y + v.z * v.z;
+    val = static_cast<accum_t>(v.x) * static_cast<accum_t>(v.x) +
+          static_cast<accum_t>(v.y) * static_cast<accum_t>(v.y) +
+          static_cast<accum_t>(v.z) * static_cast<accum_t>(v.z);
   }
   sdata[tid] = val;
   __syncthreads();
@@ -148,27 +155,27 @@ __global__ void vmax_reduce_kernel(const Vec3* __restrict__ velocities,
   }
 }
 
-real device_compute_vmax(const Vec3* d_velocities, i32 natoms) {
+accum_t device_compute_vmax(const Vec3* d_velocities, i32 natoms) {
   if (natoms == 0) return 0;
 
   int grid = (natoms + kBlock - 1) / kBlock;
 
-  real* d_block_max = nullptr;
+  accum_t* d_block_max = nullptr;
   TDMD_CUDA_CHECK(cudaMalloc(&d_block_max,
-                              static_cast<std::size_t>(grid) * sizeof(real)));
+                              static_cast<std::size_t>(grid) * sizeof(accum_t)));
 
-  vmax_reduce_kernel<<<grid, kBlock, kBlock * sizeof(real)>>>(
+  vmax_reduce_kernel<<<grid, kBlock, kBlock * sizeof(accum_t)>>>(
       d_velocities, natoms, d_block_max);
   TDMD_CUDA_CHECK(cudaGetLastError());
 
-  std::vector<real> h_max(static_cast<std::size_t>(grid));
+  std::vector<accum_t> h_max(static_cast<std::size_t>(grid));
   TDMD_CUDA_CHECK(cudaMemcpy(h_max.data(), d_block_max,
-                              static_cast<std::size_t>(grid) * sizeof(real),
+                              static_cast<std::size_t>(grid) * sizeof(accum_t),
                               cudaMemcpyDeviceToHost));
   cudaFree(d_block_max);
 
-  real max_v2 = 0;
-  for (real m : h_max) {
+  accum_t max_v2 = 0;
+  for (accum_t m : h_max) {
     if (m > max_v2) max_v2 = m;
   }
   return std::sqrt(max_v2);
@@ -195,7 +202,7 @@ NoseHooverChain::NoseHooverChain(const NHCConfig& cfg, real dt, i32 n_dof)
   }
 }
 
-real NoseHooverChain::half_step(real ke_current) {
+real NoseHooverChain::half_step(accum_t ke_current) {
   // MTTK integration of the NHC (half-step).
   // References:
   //   Martyna, Tuckerman, Tobias, Klein, Mol. Phys. 87, 1117 (1996)

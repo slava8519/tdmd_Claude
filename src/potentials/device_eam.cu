@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "../core/device_buffer.cuh"
+#include "../core/device_math.cuh"
 #include "../core/error.hpp"
 
 namespace tdmd::potentials {
@@ -59,33 +60,43 @@ __global__ void eam_density_kernel(
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i >= natoms) return;
 
-  Vec3 pi = positions[i];
+  // Load position in pos_t (double) — ADR 0007 Force contract.
+  pos_t pix = static_cast<pos_t>(positions[i].x);
+  pos_t piy = static_cast<pos_t>(positions[i].y);
+  pos_t piz = static_cast<pos_t>(positions[i].z);
+
+  pos_t bsx = static_cast<pos_t>(box_size.x);
+  pos_t bsy = static_cast<pos_t>(box_size.y);
+  pos_t bsz = static_cast<pos_t>(box_size.z);
+
   i32 offset = offsets[i];
   i32 cnt = counts[i];
   real rho_i = real{0};
 
   for (i32 k = 0; k < cnt; ++k) {
     i32 j = neighbors[offset + k];
-    real dx = pi.x - positions[j].x;
-    real dy = pi.y - positions[j].y;
-    real dz = pi.z - positions[j].z;
+
+    // Distance in pos_t (double) for deterministic cutoff.
+    pos_t dx = pix - static_cast<pos_t>(positions[j].x);
+    pos_t dy = piy - static_cast<pos_t>(positions[j].y);
+    pos_t dz = piz - static_cast<pos_t>(positions[j].z);
 
     if (pbc_x) {
-      if (dx > box_size.x * real{0.5}) dx -= box_size.x;
-      else if (dx < -box_size.x * real{0.5}) dx += box_size.x;
+      if (dx > bsx * 0.5) dx -= bsx;
+      else if (dx < -bsx * 0.5) dx += bsx;
     }
     if (pbc_y) {
-      if (dy > box_size.y * real{0.5}) dy -= box_size.y;
-      else if (dy < -box_size.y * real{0.5}) dy += box_size.y;
+      if (dy > bsy * 0.5) dy -= bsy;
+      else if (dy < -bsy * 0.5) dy += bsy;
     }
     if (pbc_z) {
-      if (dz > box_size.z * real{0.5}) dz -= box_size.z;
-      else if (dz < -box_size.z * real{0.5}) dz += box_size.z;
+      if (dz > bsz * 0.5) dz -= bsz;
+      else if (dz < -bsz * 0.5) dz += bsz;
     }
 
-    real r2 = dx * dx + dy * dy + dz * dz;
-    if (r2 >= rc_sq) continue;
-    real r = sqrt(r2);
+    pos_t r2 = dx * dx + dy * dy + dz * dz;
+    if (r2 >= static_cast<pos_t>(rc_sq)) continue;
+    real r = math::sqrt_impl(static_cast<real>(r2));
 
     // rho_j(r) — density function of atom j's type.
     i32 tj = types[j] - 1;  // 0-based
@@ -101,7 +112,7 @@ __global__ void eam_embedding_kernel(
     const i32* __restrict__ types, i32 natoms,
     const DeviceSpline* __restrict__ embedding_meta,
     const real* __restrict__ coeff, const real* __restrict__ rho,
-    real* __restrict__ fp, real* __restrict__ d_energy) {
+    real* __restrict__ fp, accum_t* __restrict__ d_energy) {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i >= natoms) return;
 
@@ -111,7 +122,7 @@ __global__ void eam_embedding_kernel(
 
   if (d_energy) {
     real e = spline_eval(embedding_meta[ti], coeff, rho_i);
-    atomicAdd(d_energy, e);
+    atomicAdd(d_energy, static_cast<accum_t>(e));
   }
 }
 
@@ -136,11 +147,19 @@ __global__ void eam_force_kernel(
     const DeviceSpline* __restrict__ density_meta,
     const DeviceSpline* __restrict__ phi_meta,
     const real* __restrict__ coeff, const real* __restrict__ fp,
-    real* __restrict__ d_energy) {
+    accum_t* __restrict__ d_energy) {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i >= natoms) return;
 
-  Vec3 pi = positions[i];
+  // Load position in pos_t (double) — ADR 0007 Force contract.
+  pos_t pix = static_cast<pos_t>(positions[i].x);
+  pos_t piy = static_cast<pos_t>(positions[i].y);
+  pos_t piz = static_cast<pos_t>(positions[i].z);
+
+  pos_t bsx = static_cast<pos_t>(box_size.x);
+  pos_t bsy = static_cast<pos_t>(box_size.y);
+  pos_t bsz = static_cast<pos_t>(box_size.z);
+
   i32 ti = types[i] - 1;
   i32 offset = offsets[i];
   i32 cnt = counts[i];
@@ -151,26 +170,28 @@ __global__ void eam_force_kernel(
 
   for (i32 k = 0; k < cnt; ++k) {
     i32 j = neighbors[offset + k];
-    real dx = pi.x - positions[j].x;
-    real dy = pi.y - positions[j].y;
-    real dz = pi.z - positions[j].z;
+
+    // Distance in pos_t (double) for deterministic cutoff.
+    pos_t dx = pix - static_cast<pos_t>(positions[j].x);
+    pos_t dy = piy - static_cast<pos_t>(positions[j].y);
+    pos_t dz = piz - static_cast<pos_t>(positions[j].z);
 
     if (pbc_x) {
-      if (dx > box_size.x * real{0.5}) dx -= box_size.x;
-      else if (dx < -box_size.x * real{0.5}) dx += box_size.x;
+      if (dx > bsx * 0.5) dx -= bsx;
+      else if (dx < -bsx * 0.5) dx += bsx;
     }
     if (pbc_y) {
-      if (dy > box_size.y * real{0.5}) dy -= box_size.y;
-      else if (dy < -box_size.y * real{0.5}) dy += box_size.y;
+      if (dy > bsy * 0.5) dy -= bsy;
+      else if (dy < -bsy * 0.5) dy += bsy;
     }
     if (pbc_z) {
-      if (dz > box_size.z * real{0.5}) dz -= box_size.z;
-      else if (dz < -box_size.z * real{0.5}) dz += box_size.z;
+      if (dz > bsz * 0.5) dz -= bsz;
+      else if (dz < -bsz * 0.5) dz += bsz;
     }
 
-    real r2 = dx * dx + dy * dy + dz * dz;
-    if (r2 >= rc_sq) continue;
-    real r = sqrt(r2);
+    pos_t r2 = dx * dx + dy * dy + dz * dz;
+    if (r2 >= static_cast<pos_t>(rc_sq)) continue;
+    real r = math::sqrt_impl(static_cast<real>(r2));
 
     i32 tj = types[j] - 1;
     i32 pidx = phi_index_dev(ti, tj, ntypes);
@@ -188,9 +209,9 @@ __global__ void eam_force_kernel(
 
     real fpair = -(dphi_dr + fpi * drho_j_dr + fp[j] * drho_i_dr) / r;
 
-    fx += fpair * dx;
-    fy += fpair * dy;
-    fz += fpair * dz;
+    fx += fpair * static_cast<real>(dx);
+    fy += fpair * static_cast<real>(dy);
+    fz += fpair * static_cast<real>(dz);
   }
 
   forces[i].x += fx;
@@ -198,7 +219,7 @@ __global__ void eam_force_kernel(
   forces[i].z += fz;
 
   if (d_energy) {
-    atomicAdd(d_energy, pe);
+    atomicAdd(d_energy, static_cast<accum_t>(pe));
   }
 }
 
@@ -267,7 +288,7 @@ void DeviceEam::upload_tables(const EamAlloy& eam) {
 void DeviceEam::compute(const Vec3* d_positions, Vec3* d_forces,
                         const i32* d_types, const i32* d_neighbors,
                         const i32* d_offsets, const i32* d_counts,
-                        i32 natoms, const Box& box, real* d_energy) {
+                        i32 natoms, const Box& box, accum_t* d_energy) {
   if (natoms == 0) return;
 
   Vec3 box_size = box.size();
