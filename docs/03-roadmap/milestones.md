@@ -180,6 +180,8 @@ Post-M7 research items: dynamic load balancing, space-filling-curve traversal or
 
 **Out of scope:** spatial decomposition within a rank.
 
+> **Implementation status:** M5 is implemented as a **full-replication scaffold** — each rank holds all atoms on GPU and exchanges zone boundary data via synchronous `MPI_Sendrecv` with D2H/H2D staging. This satisfies M5 correctness requirements (multi-rank execution, deterministic results matching single-rank) but is **not performance-optimized distributed MD**. Memory is O(N) per rank; communication is blocking. Ghost-only exchange and async overlap are deferred. See [ADR 0006](../06-decisions/0006-distributed-scaffold-honesty.md).
+
 ---
 
 ## M6 — 2D time × space parallelism
@@ -199,6 +201,8 @@ Post-M7 research items: dynamic load balancing, space-filling-curve traversal or
 - [ ] Documented in `docs/02-architecture/parallel-model.md` (deferred).
 
 **Out of scope:** dynamic rebalancing.
+
+> **Implementation status:** M6 is implemented as a **full-replication scaffold** with the same limitations as M5. The 2D `[P_time, P_space]` MPI Cartesian communicator works, ghost atom halo exchange runs on `space_comm`, and correctness is validated (4-rank hybrid matches single-rank within 1e-6). However, each rank still holds all atoms, and halo exchange uses synchronous MPI with D2H/H2D staging. True distributed spatial decomposition with ghost-only storage is deferred. See [ADR 0006](../06-decisions/0006-distributed-scaffold-honesty.md).
 
 ---
 
