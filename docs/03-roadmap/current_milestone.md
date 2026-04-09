@@ -1,41 +1,43 @@
-# Current Milestone: M7 — NVT/NPT + adaptive Δt + optimizations ✅ COMPLETE
+# Current state: post-M7, ADR 0005 Phase 2 complete
 
-> **Goal:** Standard ensembles (NVT) and adaptive Δt from the dissertation.
+> **Last updated:** 2026-04-09
 
-## Checklist
+## Closed
 
-- [x] `integrator/NoseHooverChain` — GPU NHC thermostat with MTTK integration scheme
-- [x] `device_compute_ke` — two-pass GPU kinetic energy reduction
-- [x] `device_scale_velocities` / `device_scale_velocities_zone` — GPU velocity scaling
-- [x] `device_compute_vmax` — GPU max atomic speed reduction for adaptive Δt
-- [x] NVT integration in `PipelineScheduler` (single-rank): NHC half-steps bracket each VV step
-- [x] NVT integration in `DistributedPipelineScheduler` (multi-rank): MPI_Allreduce for global KE
-- [x] NVT integration in `HybridPipelineScheduler` (2D time×space): MPI_Allreduce for global KE
-- [x] Adaptive Δt mode: `dt = min(dt_max, c2 * rc / v_max)`, opt-in
-- [x] Test: NVT temperature convergence to 300K target (< 15% relative error)
-- [x] Test: device/host KE match (< 1e-10 relative)
-- [x] Test: deterministic NVT reproducibility (< 1e-10 position diff)
-- [x] Test: device/host v_max match (< 1e-10 relative)
-- [x] Test: adaptive Δt NVE stability (|dE/E| < 1e-2)
-- [x] Build system: device_nose_hoover.cu added to integrator CMakeLists.txt
-- [x] CHANGELOG v0.7.0
+- **M0–M7:** all milestones formally complete. 71 tests passing (FP64+CUDA+MPI build).
+- **ADR 0005 Phase 2:** `FastPipelineScheduler` implemented and measured. Single-GPU batched kernels, 5 launches/step. FP32 medium (32k atoms): 7,638 ts/s, **2.38x faster than LAMMPS-GPU**. See [`docs/05-benchmarks/phase2-batched-scheduler-results.md`](../05-benchmarks/phase2-batched-scheduler-results.md).
 
-## Exit criteria — status
+## Active backlog (prioritized)
 
-- [x] NVT VerifyLab scenario: ⟨T⟩ within 15% of target for 256-atom system.
-- [x] Adaptive Δt produces stable trajectories on thermal benchmark.
-- [ ] NPT (deferred — NVT is the priority; NPT is a straightforward extension).
-- [ ] Roofline analysis / kernel optimizations (deferred to post-M7).
-- [ ] 70% of LAMMPS-GPU timesteps/s (deferred — needs profiling).
-- [x] 68 tests passing (63 M0-M6 + 5 M7).
+### High priority — next sessions
 
-## Architecture notes
+1. **NVT multi-rank atom range bug.** `DistributedPipelineScheduler` computes `first_local_atom_`/`local_atom_count_` in constructor before `assign_atoms()`, but `upload()` calls `assign_atoms()` which re-sorts atoms. The KE/scaling in NVT path uses stale offsets. Fix: recompute local atom range after `assign_atoms()` in `upload()`. Severity: medium (affects MPI NVT only). Planned: session 2.
 
-- NHC thermostat uses MTTK (Martyna-Tuckerman-Tobias-Klein) scheme.
-- Chain masses: Q_1 = n_dof * kB * T * τ², Q_k = kB * T * τ² (LAMMPS convention).
-- In NVT mode, all schedulers drain the pipeline before each thermostat step (serialized for correctness).
-- Multi-rank NVT: each rank computes local KE → MPI_Allreduce(SUM) → replicated NHC half-step → scale owned velocities.
-- Adaptive Δt uses `current_dt_` member instead of `cfg_.dt` in launch_zone_step().
-- Variable step size breaks symplecticity → expect larger energy drift than fixed dt.
+2. **FP32 test tolerance failures.** 12 of 65 tests fail in FP32 build (`TDMD_FP64=OFF`). Root cause: tests use `EXPECT_DOUBLE_EQ` and `1e-10`/`1e-12` tolerances hardcoded for FP64. Fix: make tolerances dependent on `sizeof(real)`. Planned: session 3.
 
-## Next: M8 — ML potentials (continuous)
+3. **Phase 3a: neighbor list optimization.** `DeviceNeighborList::build` takes 175 us/call (42% GPU time on small, vs LAMMPS ~60 us). Contains host prefix sum with `cudaStreamSynchronize`. Target: 60 us/call, fully GPU-resident. Expected: +10-15% overall. Effort: ~1 day.
+
+4. **Phase 4: EAM migration to FastPipelineScheduler.** Replace `compute_morse_gpu` with 3-pass EAM. Step goes from 5 to 7-8 launches. Architecture is potential-neutral. Effort: ~1 day.
+
+### Medium priority — future optimization
+
+5. **Kernel fusion K>1.** TD-unique feature. Multiple VV steps in a single kernel launch. Expected 1.3-3x on small systems. Separate ADR. Effort: ~2-3 days.
+
+6. **Force kernel vectorization.** Horizontal vector ops (4 neighbors per SIMD lane). Expected 2-3x in compute-bound regime. Effort: TBD.
+
+7. **Mixed precision mode.** FP32 compute + FP64 accumulators for long runs (>30M steps). Effort: TBD.
+
+### Low priority — infrastructure debt
+
+8. **CI GPU coverage.** Current CI is CPU-only + compile-only CUDA/MPI. Permanent solution: self-hosted GPU runner. See [`docs/04-development/ci-strategy.md`](../04-development/ci-strategy.md).
+
+9. **Multi-rank scaffold to production distributed MD.** Current M5/M6 use full replication. Path: ghost-atom exchange, async overlap, true distributed scaling. See [ADR 0006](../06-decisions/0006-distributed-scaffold-honesty.md).
+
+## Known issues
+
+| Issue | Severity | Location | Planned fix |
+|-------|----------|----------|-------------|
+| NVT multi-rank stale atom offsets | Medium | `distributed_pipeline_scheduler.cu:83,421` | Session 2 |
+| FP32 test failures (12/65) | High | various tests, hardcoded FP64 tolerances | Session 3 |
+| CI does not run GPU tests | Medium | `.github/workflows/build.yml` | Self-hosted runner (backlog) |
+| Docs had stale M0 claims | Fixed | README, build-and-run.md | This session |
