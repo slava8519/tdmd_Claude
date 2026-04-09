@@ -34,3 +34,63 @@ jobs:
 
       - name: Run binary
         run: ./build/tdmd_standalone --version
+
+  # ⚠️ TEMPORARY: compile-only because GitHub free-tier has no GPU.
+  # Catches: missing headers, broken function signatures, kernel launch syntax.
+  # Does NOT catch: runtime correctness, race conditions, physics, performance.
+  # See docs/04-development/ci-strategy.md for what is and is not covered.
+  # Remove TEMPORARY tag when self-hosted GPU runner is available.
+  cuda-compile-only:
+    name: "CUDA compile-only (TEMPORARY)"
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Install CUDA toolkit via NVIDIA's official apt repository.
+      # Using apt approach (not third-party GitHub Actions) to minimize
+      # external dependencies. CUDA 12.6 on Ubuntu 22.04.
+      - name: Install CUDA toolkit
+        run: |
+          wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          sudo apt-get update
+          sudo apt-get install -y cuda-toolkit-12-6 ninja-build g++
+
+      - name: Configure (CUDA, no MPI)
+        run: |
+          export PATH=/usr/local/cuda-12.6/bin:$PATH
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTDMD_ENABLE_CUDA=ON \
+            -DTDMD_BUILD_TESTS=ON \
+            -DTDMD_BUILD_BENCHMARKS=ON
+
+      - name: Build (compile-only, no tests)
+        run: |
+          export PATH=/usr/local/cuda-12.6/bin:$PATH
+          cmake --build build -j
+
+  # ⚠️ TEMPORARY: compile-only because we cannot run multi-rank tests in CI.
+  # Catches: missing MPI headers, broken signatures, broken collective calls.
+  # Does NOT catch: deadlocks, rank logic bugs, off-by-one in partitioning.
+  # See docs/04-development/ci-strategy.md.
+  mpi-compile-only:
+    name: "MPI compile-only (TEMPORARY)"
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MPI and build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++ openmpi-bin libopenmpi-dev
+
+      - name: Configure (MPI, no CUDA)
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTDMD_ENABLE_MPI=ON \
+            -DTDMD_BUILD_TESTS=ON
+
+      - name: Build (compile-only, no tests)
+        run: cmake --build build -j
