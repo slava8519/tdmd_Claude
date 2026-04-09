@@ -10,6 +10,7 @@
 
 #include "../core/device_buffer.cuh"
 #include "../core/error.hpp"
+#include "../core/mpi_types.hpp"
 #include "../integrator/device_nose_hoover.cuh"
 #include "../integrator/device_velocity_verlet_zone.cuh"
 #include "../potentials/device_morse_zone.cuh"
@@ -80,22 +81,9 @@ DistributedPipelineScheduler::DistributedPipelineScheduler(
 
   compute_boundary_zones();
 
-  // Compute contiguous atom range for locally-owned zones.
-  // Zones are sorted by position and ranks own contiguous zone subsets,
-  // so owned atoms are a contiguous block after assign_atoms().
-  first_local_atom_ = 0;
-  local_atom_count_ = 0;
-  bool found_first = false;
-  for (i32 z = 0; z < partition_.n_zones(); ++z) {
-    if (partition_.is_local(z, rank_)) {
-      const auto& zone = partition_.zones()[static_cast<std::size_t>(z)];
-      if (!found_first) {
-        first_local_atom_ = zone.atom_offset;
-        found_first = true;
-      }
-      local_atom_count_ += zone.natoms_in_zone;
-    }
-  }
+  // Note: first_local_atom_ and local_atom_count_ are computed in upload()
+  // after assign_atoms() sets valid zone metadata. Do NOT compute them here —
+  // zone atom_offset/natoms_in_zone are uninitialized before assign_atoms().
 
   // Initialize NVT thermostat if requested.
   if (cfg_.t_target > 0) {
@@ -185,6 +173,22 @@ void DistributedPipelineScheduler::upload(
   }
   std::fill(ghost_time_steps_.begin(), ghost_time_steps_.end(), 0);
   needs_rebuild_ = true;
+
+  // Recompute contiguous atom range for locally-owned zones.
+  // Must be done AFTER assign_atoms() which sets zone atom_offset/natoms_in_zone.
+  first_local_atom_ = 0;
+  local_atom_count_ = 0;
+  bool found_first = false;
+  for (i32 z = 0; z < partition_.n_zones(); ++z) {
+    if (partition_.is_local(z, rank_)) {
+      const auto& zone = partition_.zones()[static_cast<std::size_t>(z)];
+      if (!found_first) {
+        first_local_atom_ = zone.atom_offset;
+        found_first = true;
+      }
+      local_atom_count_ += zone.natoms_in_zone;
+    }
+  }
 }
 
 void DistributedPipelineScheduler::rebuild_nlist() {
@@ -417,12 +421,14 @@ void DistributedPipelineScheduler::run_until(i32 target_step) {
       exchange_boundary_data();
 
       // Pre-step NHC: compute local KE → Allreduce → scale.
-      real local_ke = integrator::device_compute_ke(
+      accum_t local_ke = integrator::device_compute_ke(
           d_vel_.data() + first_local_atom_,
           d_types_.data() + first_local_atom_, d_masses_.data(),
           local_atom_count_);
-      real global_ke = 0;
-      MPI_Allreduce(&local_ke, &global_ke, 1, MPI_DOUBLE, MPI_SUM, comm_);
+      accum_t global_ke = 0;
+      MPI_Allreduce(&local_ke, &global_ke, 1,
+                    mpi_type<accum_t>(), MPI_SUM,
+                    comm_);
 
       real scale1 = nhc_->half_step(global_ke);
       integrator::device_scale_velocities_zone(
@@ -441,7 +447,9 @@ void DistributedPipelineScheduler::run_until(i32 target_step) {
           d_types_.data() + first_local_atom_, d_masses_.data(),
           local_atom_count_);
       global_ke = 0;
-      MPI_Allreduce(&local_ke, &global_ke, 1, MPI_DOUBLE, MPI_SUM, comm_);
+      MPI_Allreduce(&local_ke, &global_ke, 1,
+                    mpi_type<accum_t>(), MPI_SUM,
+                    comm_);
 
       real scale2 = nhc_->half_step(global_ke);
       integrator::device_scale_velocities_zone(

@@ -17,6 +17,7 @@
 
 #include "../core/device_buffer.cuh"
 #include "../core/error.hpp"
+#include "../core/mpi_types.hpp"
 #include "../integrator/device_nose_hoover.cuh"
 #include "../integrator/device_velocity_verlet_zone.cuh"
 #include "../potentials/device_morse_zone.cuh"
@@ -762,10 +763,11 @@ void HybridPipelineScheduler::run_until(i32 target_step) {
       halo_exchange();
 
       // Pre-step NHC: compute local KE → Allreduce → scale.
-      real local_ke = integrator::device_compute_ke(
+      accum_t local_ke = integrator::device_compute_ke(
           d_vel_.data(), d_types_.data(), d_masses_.data(), n_owned_);
-      real global_ke = 0;
-      MPI_Allreduce(&local_ke, &global_ke, 1, MPI_DOUBLE, MPI_SUM,
+      accum_t global_ke = 0;
+      MPI_Allreduce(&local_ke, &global_ke, 1,
+                     mpi_type<accum_t>(), MPI_SUM,
                      world_comm_);
 
       real scale1 = nhc_->half_step(global_ke);
@@ -783,7 +785,8 @@ void HybridPipelineScheduler::run_until(i32 target_step) {
       local_ke = integrator::device_compute_ke(d_vel_.data(), d_types_.data(),
                                                d_masses_.data(), n_owned_);
       global_ke = 0;
-      MPI_Allreduce(&local_ke, &global_ke, 1, MPI_DOUBLE, MPI_SUM,
+      MPI_Allreduce(&local_ke, &global_ke, 1,
+                     mpi_type<accum_t>(), MPI_SUM,
                      world_comm_);
 
       real scale2 = nhc_->half_step(global_ke);
