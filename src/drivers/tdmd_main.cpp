@@ -18,7 +18,7 @@
 #include "potentials/morse.hpp"
 
 namespace {
-constexpr const char* kVersion = "0.1.0-m1";
+constexpr const char* kVersion = "0.7.0-dev";
 
 struct RunConfig {
   std::string data_file;
