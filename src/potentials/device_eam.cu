@@ -56,7 +56,7 @@ __global__ void eam_density_kernel(
     const i32* __restrict__ counts, i32 natoms, Vec3 box_lo, Vec3 box_size,
     bool pbc_x, bool pbc_y, bool pbc_z, real rc_sq,
     const DeviceSpline* __restrict__ density_meta,
-    const real* __restrict__ coeff, real* __restrict__ rho) {
+    const real* __restrict__ coeff, accum_t* __restrict__ rho) {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i >= natoms) return;
 
@@ -71,7 +71,7 @@ __global__ void eam_density_kernel(
 
   i32 offset = offsets[i];
   i32 cnt = counts[i];
-  real rho_i = real{0};
+  accum_t rho_i = accum_t{0};
 
   for (i32 k = 0; k < cnt; ++k) {
     i32 j = neighbors[offset + k];
@@ -100,7 +100,7 @@ __global__ void eam_density_kernel(
 
     // rho_j(r) — density function of atom j's type.
     i32 tj = types[j] - 1;  // 0-based
-    rho_i += spline_eval(density_meta[tj], coeff, r);
+    rho_i += static_cast<accum_t>(spline_eval(density_meta[tj], coeff, r));
   }
 
   rho[i] = rho_i;
@@ -111,13 +111,13 @@ __global__ void eam_density_kernel(
 __global__ void eam_embedding_kernel(
     const i32* __restrict__ types, i32 natoms,
     const DeviceSpline* __restrict__ embedding_meta,
-    const real* __restrict__ coeff, const real* __restrict__ rho,
+    const real* __restrict__ coeff, const accum_t* __restrict__ rho,
     real* __restrict__ fp, accum_t* __restrict__ d_energy) {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i >= natoms) return;
 
   i32 ti = types[i] - 1;
-  real rho_i = rho[i];
+  real rho_i = static_cast<real>(rho[i]);
   fp[i] = spline_eval_deriv(embedding_meta[ti], coeff, rho_i);
 
   if (d_energy) {

@@ -63,7 +63,7 @@ class DeviceEam {
   DeviceBuffer<real> d_coeff_;
 
   // Per-atom buffers (allocated during compute).
-  DeviceBuffer<real> d_rho_;
+  DeviceBuffer<accum_t> d_rho_;
   DeviceBuffer<real> d_fp_;
 };
 
