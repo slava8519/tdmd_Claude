@@ -23,7 +23,7 @@ A full read-only inventory of precision-sensitive sites found:
 
 | Category | Count | Current type | Notes |
 |---|---|---|---|
-| Force kernels (Morse, EAM) | 7 kernels + 2 helpers | `real` | All consistent, no hardcoded float/double |
+| Force kernels (Morse, EAM) | 7 kernels + 2 helpers | `force_t`/`accum_t` | Migrated: Morse in 3B.7.fix, EAM in EAM-1B. Relative-coordinate trick, force_t accumulators, accum_t density (EAM) |
 | Integrator kernels (VV, zone VV) | 6 kernels | `real` | half_kick: `factor = half_dt / (mass * kMvv2e)` |
 | Reductions (KE, vmax, PE atomicAdd) | 4 sites | `real` accumulators | Main precision concern: FP32 accumulation of N terms |
 | Neighbor list distance | 1 kernel | `real` | Standard dx/dy/dz, r^2 pattern |
@@ -67,8 +67,10 @@ A new CMake option `TDMD_PRECISION` replaces `TDMD_FP64`:
 | Mass (per type) | `double` | `double` | Constant, no perf impact |
 | Time step `dt` | `double` | `double` | Constant, no perf impact |
 | Morse params (D, alpha, r0, rc) | `double` | `double` | Constants, no perf impact |
-| EAM spline coefficients (a, b, c, d) | `double` | `double` | Constant tables loaded once into cache; memory bandwidth not the bottleneck; spline interpolation precision directly affects force quality near embedding curve minima where dF/drho changes sign. LAMMPS keeps EAM tables in `double` in mixed mode for the same reason |
-| EAM spline metadata (dr, rmin) | `double` | `double` | Spacing constants, precision matters for interpolation endpoints |
+| EAM spline coefficients (a, b, c, d) | `real` (float) | `double` | LAMMPS uses `numtyp` (float) for all spline tables in mixed mode. Read-only data, fits in cache regardless of precision; cubic interpolation precision sufficient for embedded atom potentials validated by LAMMPS production use. **Original ADR 0007 specified `double` here based on design-time intuition; LAMMPS source reading in session EAM-1A established that `float` is correct (per ADR 0008 process rule).** |
+| EAM spline metadata (dr, rmin) | `real` (float) | `double` | Same as coefficients — float in mixed mode, matches LAMMPS |
+| EAM density accumulator (rho_i) | `accum_t` (double) | `double` | LAMMPS uses `acctyp` (double) for density gather. Sum of ~50-100 spline-eval terms per atom; double accumulation prevents catastrophic accumulation error in density sum |
+| EAM embedding derivative (fp_i) | `real` (float) | `double` | LAMMPS uses `numtyp` (float). Computed from spline lookup at density value, then used as multiplier in force expression — float precision sufficient |
 | Distance computation (dx, dy, dz, r^2) | `force_t` (via relative-coordinate trick: double subtract → force_t cast) | `double` | Relative-coordinate trick gives float distance from double subtraction, avoiding catastrophic cancellation; no epsilon buffer needed (skin distance suffices) |
 | Energy (KE, PE, total) | `double` | `double` | Reductions: FP32 sums of N atoms accumulate epsilon*N error |
 | Virial sum | `double` | `double` | Same as energy |
@@ -379,6 +381,30 @@ double-precision distance computation.
 - Morse zone variant: same changes
 - Neighbor list builder: same relative-coordinate trick, real distance/PBC
 - device_math.cuh intrinsics retained for sqrt/exp
+
+### EAM migration results (session EAM-1B)
+
+EAM kernels migrated to ADR 0007 Force compute contract pattern:
+
+- Density accumulator: `real` (float) → `accum_t` (double) — correctness fix,
+  LAMMPS parity. LAMMPS uses `acctyp` (double) for density gather.
+- Density kernel distance: `pos_t` (double) → `force_t` (float) via
+  relative-coordinate trick. Eliminates FP64 hotspot.
+- Force kernel distance: same relative-coordinate trick pattern.
+- Force kernel accumulators: `real` → `force_t`. Follows Morse pattern.
+- Spline coefficients and metadata: confirmed `real` (float in mixed) is
+  correct per LAMMPS reading. ADR table entries corrected above.
+
+**Test impact:**
+- All EAM tests pass in both build modes (mixed and fp64). No skips needed.
+- FP64 mode bit-identical to pre-migration state (all casts are identity when
+  `force_t = double`).
+- NVE drift tests unaffected (they use Morse, not EAM).
+
+**Performance:** EAM-specific benchmark not yet available
+(`bench_pipeline_scheduler` supports Morse only). FP64 hotspot elimination
+expected to provide similar speedup as Morse migration (~4-9x in mixed mode).
+EAM benchmark infrastructure deferred to future session.
 
 ## References
 
