@@ -60,14 +60,21 @@ __global__ void eam_density_kernel(
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i >= natoms) return;
 
-  // Load position in pos_t (double) — ADR 0007 Force contract.
-  pos_t pix = static_cast<pos_t>(positions[i].x);
-  pos_t piy = static_cast<pos_t>(positions[i].y);
-  pos_t piz = static_cast<pos_t>(positions[i].z);
+  // Position load in double for relative-coordinate trick (ADR 0007/0008).
+  pos_t pix = positions[i].x;
+  pos_t piy = positions[i].y;
+  pos_t piz = positions[i].z;
 
-  pos_t bsx = static_cast<pos_t>(box_size.x);
-  pos_t bsy = static_cast<pos_t>(box_size.y);
-  pos_t bsz = static_cast<pos_t>(box_size.z);
+  // Box dimensions to force_t once, outside the loop.
+  const force_t bsx = static_cast<force_t>(box_size.x);
+  const force_t bsy = static_cast<force_t>(box_size.y);
+  const force_t bsz = static_cast<force_t>(box_size.z);
+  const force_t bsx_half = force_t{0.5} * bsx;
+  const force_t bsy_half = force_t{0.5} * bsy;
+  const force_t bsz_half = force_t{0.5} * bsz;
+
+  // Cutoff in force_t — no epsilon buffer (skin distance handles boundary).
+  const force_t rc_sq_f = static_cast<force_t>(rc_sq);
 
   i32 offset = offsets[i];
   i32 cnt = counts[i];
@@ -76,26 +83,26 @@ __global__ void eam_density_kernel(
   for (i32 k = 0; k < cnt; ++k) {
     i32 j = neighbors[offset + k];
 
-    // Distance in pos_t (double) for deterministic cutoff.
-    pos_t dx = pix - static_cast<pos_t>(positions[j].x);
-    pos_t dy = piy - static_cast<pos_t>(positions[j].y);
-    pos_t dz = piz - static_cast<pos_t>(positions[j].z);
+    // Relative-coordinate trick: one double subtract, then cast to force_t.
+    force_t dx = static_cast<force_t>(pix - positions[j].x);
+    force_t dy = static_cast<force_t>(piy - positions[j].y);
+    force_t dz = static_cast<force_t>(piz - positions[j].z);
 
     if (pbc_x) {
-      if (dx > bsx * 0.5) dx -= bsx;
-      else if (dx < -bsx * 0.5) dx += bsx;
+      if (dx > bsx_half) dx -= bsx;
+      else if (dx < -bsx_half) dx += bsx;
     }
     if (pbc_y) {
-      if (dy > bsy * 0.5) dy -= bsy;
-      else if (dy < -bsy * 0.5) dy += bsy;
+      if (dy > bsy_half) dy -= bsy;
+      else if (dy < -bsy_half) dy += bsy;
     }
     if (pbc_z) {
-      if (dz > bsz * 0.5) dz -= bsz;
-      else if (dz < -bsz * 0.5) dz += bsz;
+      if (dz > bsz_half) dz -= bsz;
+      else if (dz < -bsz_half) dz += bsz;
     }
 
-    pos_t r2 = dx * dx + dy * dy + dz * dz;
-    if (r2 >= static_cast<pos_t>(rc_sq)) continue;
+    force_t r2 = dx * dx + dy * dy + dz * dz;
+    if (r2 >= rc_sq_f) continue;
     real r = math::sqrt_impl(static_cast<real>(r2));
 
     // rho_j(r) — density function of atom j's type.
