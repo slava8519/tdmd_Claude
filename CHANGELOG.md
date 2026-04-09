@@ -29,6 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - LAMMPS baseline inputs for small and medium systems.
 
 ### Documented
+- README synced with reality: M0-M7 complete, Phase 2 results, known limitations explicit. Quickstart verified locally.
+- `docs/04-development/build-and-run.md` rewritten: actual CLI (`--data`), all build modes (CPU/CUDA/FP64/MPI/benchmarks), benchmark runner guide.
+- `docs/03-roadmap/current_milestone.md` replaced with honest status: closed items, prioritized backlog, known issues table.
+- M5/M6 honestly described as full-replication scaffold in `milestones.md`.
+- ADR 0006: distributed-scaffold-honesty — documents gap between scaffold and production distributed MD.
+- `docs/04-development/ci-strategy.md` — CI coverage gaps, manual check requirements, path to GPU runner.
 - ADR 0005 status updated to Implemented with full measurement tables and nsys breakdown.
 - Roadmap updated: Phase 3a (neighbor list optimization), Phase 4 (EAM migration) added with estimates.
 - M7 performance exit criterion marked as exceeded (2.38x LAMMPS-GPU on medium).
@@ -37,10 +43,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/02-architecture/scheduler.md` — pseudocode rewritten for batched launch model.
 - `docs/02-architecture/parallel-model.md` — added three-level parallelism table.
 
+### CI
+- Added `cuda-compile-only` job (TEMPORARY) — compiles `.cu` files on Ubuntu runner without GPU. Catches signature breakage, missing headers, kernel launch syntax errors. Does NOT run GPU tests.
+- Added `mpi-compile-only` job (TEMPORARY) — compiles MPI code with OpenMPI. Does NOT run multi-rank tests.
+- Both jobs marked TEMPORARY in CI display name. Permanent solution requires self-hosted GPU runner.
+- `scripts/build.sh` documented as CPU-only convenience wrapper.
+
 ### Notes
 - **ADR 0005 Phase 2 complete.** Per-zone PipelineScheduler preserved unchanged as baseline.
 - FP32 is production-safe: linear drift extrapolates to 1e-3 threshold at ~30M steps.
 - Main remaining bottleneck: `DeviceNeighborList::build` (42% GPU time, 175 us/call vs LAMMPS 60 us/call).
+- **Known issues:** NVT multi-rank atom range bug (session 2), FP32 test tolerances (session 3). See `current_milestone.md`.
 
 ## [0.7.0] - 2026-04-08
 
