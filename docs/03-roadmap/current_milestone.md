@@ -53,9 +53,12 @@ FP64 mode (validation/reference), medium: 754 ts/s.
 - **Phase Б (deferred):** PBC outside force kernel + image counter. ~7%
   additional performance + unwrapped trajectory output. Trigger conditions
   documented in milestones.md.
-- **Session 3B.8:** EAM full migration to role aliases (currently uses
-  `real`, works in mixed mode but architectural debt vs ADR 0007 Force
-  compute contract).
+- ~~**Session 3B.8:** EAM full migration to role aliases~~ — **COMPLETE
+  (session EAM-1B).** Density accumulator fixed to `accum_t` (LAMMPS
+  parity). Relative-coordinate trick applied to both density and force
+  kernels. Force accumulators migrated to `force_t`. ADR 0007 corrected
+  (spline coefficients are `real`/float, not double as originally stated).
+  All tests pass in both modes.
 - **Session 3C:** Remove `using real = ...` typedef from core/types.hpp,
   full migration cleanup. Cosmetic, low priority.
 - **Phase 4 backlog:** neighbor list rebuild optimization (~10-15% additional
@@ -70,6 +73,6 @@ Phase 3 closure is a natural pause point. Next milestone selection awaits
 project lead input. Candidates:
 - M7 kernel fusion K > 1 (TDMD-unique optimization)
 - Phase 4: neighbor list rebuild optimization
-- Session 3B.8: EAM migration
+- ~~Session 3B.8: EAM migration~~ (done in EAM-1B)
 - Multi-rank distributed work (ghost-only exchange)
 - VerifyLab expansion

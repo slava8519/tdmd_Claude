@@ -36,6 +36,27 @@ Energy drift in mixed mode: 2.57e-13 per step (target: < 1e-9).
 
 Mixed mode is now usable as the production default. The remaining ~9% gap to Phase 2 FP32 baseline comes from PBC inside force kernel + 3 FP64 subtract instructions per pair from the relative-coordinate trick.
 
+### EAM migration (session EAM-1B)
+
+- **Density accumulator: real → accum_t (correctness fix).** LAMMPS uses double
+  for EAM density gather; TDMD was using float. For systems with ~50-100 neighbors,
+  float accumulation could lose precision on density sum, propagating to embedding
+  force F'(ρ) and final forces. Now matches LAMMPS.
+- **Distance computation in EAM density and force kernels: relative-coordinate
+  trick.** Same pattern as Morse from session 3B.7.fix: positions stay double,
+  distance via single double-subtract followed by force_t cast. Eliminates FP64
+  hotspot in EAM kernels.
+- **Force kernel accumulators: real → force_t.** Follows ADR 0007 Force compute
+  contract.
+- **ADR 0007 corrected: EAM spline coefficients are `real` (float in mixed),
+  not `double`.** Original ADR statement was design-time intuition; LAMMPS reading
+  in EAM-1A confirmed float is correct. ADR 0008 process rule (copy LAMMPS)
+  applied.
+- **All EAM tests pass in both build modes (mixed and fp64).** No regressions,
+  no test skips needed.
+- **Performance:** EAM-specific benchmark not yet available. FP64 hotspot
+  elimination expected to provide similar speedup as Morse migration.
+
 ### Phase 3 series — closed
 
 Phase 3 series of seven sub-sessions complete. TDMD now ships with mixed
