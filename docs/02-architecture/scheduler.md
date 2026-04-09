@@ -86,6 +86,10 @@ private:
 
 ## The main loop (pseudocode)
 
+### Target model (batched launches)
+
+The scheduler collects **all** Ready zones with a compatible `time_step` and launches **one batched kernel** over the combined set of their atoms. A zone is a unit of *scheduling*, not a unit of *GPU work*.
+
 ```
 function tick():
   poll_completions()           # advance Computing→Done, Sending→Free, etc.
@@ -102,21 +106,29 @@ function tick():
         if check_deps(zone, zones_):
           zone.transition_to(Ready)
 
-      Ready:
-        if streams_.available():
-          stream = streams_.acquire()
-          launch_force_kernel(zone, stream)
-          launch_integrate_kernel(zone, stream)
-          record_event(zone, stream)
-          zone.transition_to(Computing)
-
       Done:
         if should_send(zone):
           comm_.post_send(zone)
           zone.transition_to(Sending)
 
+  # --- Batch launch: combine all Ready zones into one kernel ---
+  batch = collect_ready_zones(zones_)     # list of (offset, count) ranges
+  if batch is not empty:
+    stream = streams_.acquire(Phase::Compute)
+    launch_batched_force_kernel(batch, stream)    # one kernel, all Ready atoms
+    launch_batched_integrate_kernel(batch, stream) # one kernel, all Ready atoms
+    record_event(batch.zones, stream)
+    for zone in batch.zones:
+      zone.transition_to(Computing)
+
   update_telemetry()
 ```
+
+Key difference from a per-zone model: `collect_ready_zones()` builds a **batch descriptor** — a list of `(atom_offset, atom_count)` ranges from all Ready zones. The force and integrate kernels receive this descriptor and iterate over the union of ranges in a single launch. This is critical for GPU occupancy — see `docs/02-architecture/gpu-strategy.md` §"Three levels of parallelism".
+
+### Current implementation (M4-M7)
+
+> **Note:** The current implementation (`PipelineScheduler`, `DistributedPipelineScheduler`, `HybridPipelineScheduler`) launches **separate kernels per zone**, each on its own stream. This is a known deviation from the target model described above. Each zone gets a stream from the pool, and 5 separate kernels (half_kick, drift, zero_forces, morse, half_kick) are launched per zone. This pattern under-utilizes the GPU — a zone with 85 atoms produces 1 thread block on an 84-SM GPU (~1.2% occupancy). Migration to batched launches is tracked in ADR `0005-batched-force-kernels.md`.
 
 ---
 
@@ -143,7 +155,17 @@ The implementation precomputes a static neighbor list of zones (neighbors-of-zon
 
 ### 3. Stream pool
 
-Default: 4 CUDA streams. The pool is a simple round-robin with availability tracking via `cudaEventQuery`. No priority. No oversubscription.
+A pool of 2-4 CUDA streams. Streams exist to **overlap distinct phases** (force compute, communication, neighbor rebuild, host-device copies), **not** to parallelize zone computations. Zone parallelism comes from batched kernel launches (Level 2 parallelism), not from multiple streams.
+
+Target stream assignment:
+
+```
+stream 0:  [batched force compute]  [batched integrate]
+stream 1:  [recv H2D]              [send D2H]
+stream 2:  [neighbor rebuild]
+```
+
+Cross-stream dependencies are handled with `cudaEvent_t`. A pool size of 2-4 is sufficient; increasing beyond 4 yields no benefit because there are only a few distinct phases to overlap.
 
 ```cpp
 class StreamPool {
@@ -159,6 +181,8 @@ public:
 };
 ```
 
+> **Current deviation:** The M4-M7 implementation assigns one stream per zone and launches separate kernels per zone. This creates many tiny independent command queues, each with a single tiny kernel — it does not improve occupancy. Migration to phase-based stream assignment is part of ADR `0005-batched-force-kernels.md`.
+
 ### 4. Completion polling
 
 Each `Computing` zone has a recorded `cudaEvent_t`. We poll with `cudaEventQuery` (non-blocking). On success → `Computing → Done`, increment `time_step`, release stream.
@@ -171,7 +195,7 @@ We do **not** use `cudaStreamSynchronize` or `cudaDeviceSynchronize` in `tick()`
 
 | Field | Default | Meaning |
 |---|---|---|
-| `n_streams` | 4 | CUDA stream pool size |
+| `n_streams` | 4 | CUDA stream pool size (2-4 for phase overlap) |
 | `K` | 1 | Multi-step batching factor (M5+) |
 | `traversal_order` | `LinearOrder1D` | Zone walk order |
 | `r_skin` | 2.0 Å | Verlet skin |

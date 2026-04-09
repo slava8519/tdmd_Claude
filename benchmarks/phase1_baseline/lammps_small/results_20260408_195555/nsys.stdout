@@ -1,0 +1,187 @@
+LAMMPS (2 Aug 2023 - Update 3)
+Reading data file ...
+  orthogonal box = (0 0 0) to (36.15 36.15 36.15)
+  1 by 1 by 1 MPI processor grid
+  reading atoms ...
+  4000 atoms
+  read_data CPU = 0.003 seconds
+
+CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE
+
+Your simulation uses code contributions which should be cited:
+- GPU package (short-range, long-range and three-body potentials): doi:10.1016/j.cpc.2010.12.021, doi:10.1016/j.cpc.2011.10.012, doi:10.1016/j.cpc.2013.08.002, doi:10.1016/j.commatsci.2014.10.068, doi:10.1016/j.cpc.2016.10.020, doi:10.3233/APC200086
+The log file lists these citations in BibTeX format.
+
+CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE
+
+
+--------------------------------------------------------------------------
+- Using acceleration for morse:
+-  with 1 proc(s) per device.
+-  Horizontal vector operations: ENABLED
+-  Shared memory system: No
+--------------------------------------------------------------------------
+Device 0: NVIDIA GeForce RTX 5080, 84 CUs, 15/15 GB, 2.6 GHZ (Mixed Precision)
+--------------------------------------------------------------------------
+
+Initializing Device and compiling on process 0...Done.
+Initializing Device 0 on core 0...Done.
+
+Generated 0 of 0 mixed pair_coeff terms from geometric mixing rule
+Setting up Verlet run ...
+  Unit style    : metal
+  Current step  : 0
+  Time step     : 0.001
+Per MPI rank memory allocation (min/avg/max) = 2.383 | 2.383 | 2.383 Mbytes
+   Step          Temp          PotEng         KinEng         TotEng         Press     
+         0   300           -13556.968      155.0734      -13401.895      60195.275    
+       100   183.14225     -13496.537      94.668304     -13401.869      62781.898    
+       200   161.10217     -13485.139      83.275535     -13401.863      63234.001    
+       300   149.31964     -13479.043      77.185011     -13401.858      63528.626    
+       400   149.28771     -13479.025      77.16851      -13401.857      63557.13     
+       500   147.95209     -13478.325      76.478108     -13401.847      63583.414    
+       600   148.7315      -13478.738      76.880994     -13401.857      63529.051    
+       700   150.56364     -13479.676      77.828048     -13401.847      63534.107    
+       800   153.45147     -13481.179      79.320804     -13401.858      63468.481    
+       900   153.34973     -13481.126      79.268213     -13401.858      63438.881    
+      1000   149.72273     -13479.251      77.393373     -13401.857      63507.186    
+Loop time of 0.0753074 on 1 procs for 1000 steps with 4000 atoms
+
+Performance: 1147.297 ns/day, 0.021 hours/ns, 13278.902 timesteps/s, 53.116 Matom-step/s
+100.4% CPU use with 1 MPI tasks x no OpenMP threads
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 0.057579   | 0.057579   | 0.057579   |   0.0 | 76.46
+Neigh   | 3.456e-06  | 3.456e-06  | 3.456e-06  |   0.0 |  0.00
+Comm    | 0.012392   | 0.012392   | 0.012392   |   0.0 | 16.46
+Output  | 0.00012009 | 0.00012009 | 0.00012009 |   0.0 |  0.16
+Modify  | 0.0033714  | 0.0033714  | 0.0033714  |   0.0 |  4.48
+Other   |            | 0.001841   |            |       |  2.44
+
+Nlocal:           4000 ave        4000 max        4000 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Nghost:           5841 ave        5841 max        5841 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Neighs:              0 ave           0 max           0 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+
+Total # of neighbors = 0
+Ave neighs/atom = 0
+Neighbor list builds = 100
+Dangerous builds not checked
+
+
+---------------------------------------------------------------------
+      Device Time Info (average): 
+---------------------------------------------------------------------
+Data Transfer:   0.0191 s.
+Neighbor copy:   0.0013 s.
+Neighbor build:  0.0068 s.
+Force calc:      0.0191 s.
+Device Overhead: 0.0152 s.
+Average split:   1.0000.
+Lanes / atom:    4.
+Vector width:    32.
+Prefetch mode:   None.
+Max Mem / Proc:  3.44 MB.
+CPU Neighbor:    0.0046 s.
+CPU Cast/Pack:   0.0070 s.
+CPU Driver_Time: 0.0132 s.
+CPU Idle_Time:   0.0299 s.
+---------------------------------------------------------------------
+
+Total wall time: 0:00:00
+Collecting data...
+Generating '/tmp/nsys-slava8519/nsys-report-f6f0.qdstrm'
+Press Ctrl-C to stop symbol files downloading
+[1/7] [0%                          ] trace.nsys-rep[1/7] [0%                          ] trace.nsys-rep[1/7] [5%                          ] trace.nsys-rep[1/7] [6%                          ] trace.nsys-rep[1/7] [=====31%                    ] trace.nsys-rep[1/7] [===========53%              ] trace.nsys-rep[1/7] [========================100%] trace.nsys-rep[1/7] [========================100%] trace.nsys-rep
+[2/7] [0%                          ] trace.sqlite[2/7] [1%                          ] trace.sqlite[2/7] [2%                          ] trace.sqlite[2/7] [3%                          ] trace.sqlite[2/7] [4%                          ] trace.sqlite[2/7] [5%                          ] trace.sqlite[2/7] [6%                          ] trace.sqlite[2/7] [7%                          ] trace.sqlite[2/7] [8%                          ] trace.sqlite[2/7] [9%                          ] trace.sqlite[2/7] [10%                         ] trace.sqlite[2/7] [11%                         ] trace.sqlite[2/7] [12%                         ] trace.sqlite[2/7] [13%                         ] trace.sqlite[2/7] [14%                         ] trace.sqlite[2/7] [=15%                        ] trace.sqlite[2/7] [=16%                        ] trace.sqlite[2/7] [=17%                        ] trace.sqlite[2/7] [==18%                       ] trace.sqlite[2/7] [==19%                       ] trace.sqlite[2/7] [==20%                       ] trace.sqlite[2/7] [==21%                       ] trace.sqlite[2/7] [===22%                      ] trace.sqlite[2/7] [===23%                      ] trace.sqlite[2/7] [===24%                      ] trace.sqlite[2/7] [====25%                     ] trace.sqlite[2/7] [====26%                     ] trace.sqlite[2/7] [====27%                     ] trace.sqlite[2/7] [====28%                     ] trace.sqlite[2/7] [=====29%                    ] trace.sqlite[2/7] [=====30%                    ] trace.sqlite[2/7] [=====31%                    ] trace.sqlite[2/7] [=====32%                    ] trace.sqlite[2/7] [======33%                   ] trace.sqlite[2/7] [======34%                   ] trace.sqlite[2/7] [======35%                   ] trace.sqlite[2/7] [=======36%                  ] trace.sqlite[2/7] [=======37%                  ] trace.sqlite[2/7] [=======38%                  ] trace.sqlite[2/7] [=======39%                  ] trace.sqlite[2/7] [========40%                 ] trace.sqlite[2/7] [========41%                 ] trace.sqlite[2/7] [========42%                 ] trace.sqlite[2/7] [=========43%                ] trace.sqlite[2/7] [=========44%                ] trace.sqlite[2/7] [=========45%                ] trace.sqlite[2/7] [=========46%                ] trace.sqlite[2/7] [==========47%               ] trace.sqlite[2/7] [==========48%               ] trace.sqlite[2/7] [==========49%               ] trace.sqlite[2/7] [===========50%              ] trace.sqlite[2/7] [===========51%              ] trace.sqlite[2/7] [===========52%              ] trace.sqlite[2/7] [===========53%              ] trace.sqlite[2/7] [============54%             ] trace.sqlite[2/7] [============55%             ] trace.sqlite[2/7] [============56%             ] trace.sqlite[2/7] [============57%             ] trace.sqlite[2/7] [=============58%            ] trace.sqlite[2/7] [=============59%            ] trace.sqlite[2/7] [=============60%            ] trace.sqlite[2/7] [==============61%           ] trace.sqlite[2/7] [==============62%           ] trace.sqlite[2/7] [==============63%           ] trace.sqlite[2/7] [==============64%           ] trace.sqlite[2/7] [===============65%          ] trace.sqlite[2/7] [===============66%          ] trace.sqlite[2/7] [===============67%          ] trace.sqlite[2/7] [================68%         ] trace.sqlite[2/7] [================69%         ] trace.sqlite[2/7] [================70%         ] trace.sqlite[2/7] [================71%         ] trace.sqlite[2/7] [=================72%        ] trace.sqlite[2/7] [=================73%        ] trace.sqlite[2/7] [=================74%        ] trace.sqlite[2/7] [==================75%       ] trace.sqlite[2/7] [==================76%       ] trace.sqlite[2/7] [==================77%       ] trace.sqlite[2/7] [==================78%       ] trace.sqlite[2/7] [===================79%      ] trace.sqlite[2/7] [===================80%      ] trace.sqlite[2/7] [===================81%      ] trace.sqlite[2/7] [===================82%      ] trace.sqlite[2/7] [====================83%     ] trace.sqlite[2/7] [====================84%     ] trace.sqlite[2/7] [====================85%     ] trace.sqlite[2/7] [=====================86%    ] trace.sqlite[2/7] [=====================87%    ] trace.sqlite[2/7] [=====================88%    ] trace.sqlite[2/7] [=====================89%    ] trace.sqlite[2/7] [======================90%   ] trace.sqlite[2/7] [======================91%   ] trace.sqlite[2/7] [======================92%   ] trace.sqlite[2/7] [=======================93%  ] trace.sqlite[2/7] [=======================94%  ] trace.sqlite[2/7] [=======================95%  ] trace.sqlite[2/7] [=======================96%  ] trace.sqlite[2/7] [========================97% ] trace.sqlite[2/7] [========================98% ] trace.sqlite[2/7] [========================99% ] trace.sqlite[2/7] [========================100%] trace.sqlite[2/7] [========================100%] trace.sqlite
+[3/7] Executing 'osrt_sum' stats report
+
+ Time (%)  Total Time (ns)  Num Calls    Avg (ns)       Med (ns)      Min (ns)     Max (ns)    StdDev (ns)            Name         
+ --------  ---------------  ---------  -------------  -------------  -----------  -----------  ------------  ----------------------
+     66.6      660,217,186         56   11,789,592.6    9,351,782.5        1,263  100,112,122  19,629,281.1  poll                  
+     18.8      186,548,751          1  186,548,751.0  186,548,751.0  186,548,751  186,548,751           0.0  pthread_cond_timedwait
+     14.1      139,417,171        760      183,443.6        9,313.0        1,022   21,606,618     897,368.4  ioctl                 
+      0.2        2,116,883         55       38,488.8        3,437.0        1,413      955,438     138,180.4  mmap64                
+      0.1        1,008,647         11       91,695.2        2,875.0        1,462      858,139     255,510.3  munmap                
+      0.1          655,559         19       34,503.1       10,861.0        6,212      244,062      61,481.8  sem_timedwait         
+      0.1          544,312          3      181,437.3      121,565.0      115,132      307,615     109,320.4  pthread_join          
+      0.0          482,536         18       26,807.6        5,360.5        1,032      108,801      37,740.0  mmap                  
+      0.0          171,642         34        5,048.3        2,254.5        1,012       48,955       8,478.2  fopen                 
+      0.0          151,942          4       37,985.5       40,988.5       18,626       51,339      14,740.5  pthread_create        
+      0.0          106,153         32        3,317.3        1,974.0        1,372       29,617       5,046.9  fgets                 
+      0.0           73,284         34        2,155.4        1,743.5        1,002        6,202       1,273.6  open64                
+      0.0           73,081          1       73,081.0       73,081.0       73,081       73,081           0.0  pthread_cond_wait     
+      0.0           69,984         12        5,832.0        5,365.0        1,373       17,975       4,586.0  fread                 
+      0.0           68,975         23        2,998.9        2,004.0        1,072       11,192       2,376.1  close                 
+      0.0           32,862         14        2,347.3        1,342.5        1,072       11,382       2,699.1  fclose                
+      0.0           29,767          6        4,961.2        2,680.0        1,984       16,752       5,792.0  fflush                
+      0.0           18,355          3        6,118.3        5,751.0        5,371        7,233         983.9  socket                
+      0.0           15,931          3        5,310.3        3,878.0        1,132       10,921       5,049.2  fputs                 
+      0.0           14,518          2        7,259.0        7,259.0        6,983        7,535         390.3  connect               
+      0.0           13,206          4        3,301.5        3,251.5        2,645        4,058         659.7  open                  
+      0.0            9,118          3        3,039.3        3,657.0        1,493        3,968       1,348.2  pipe2                 
+      0.0            7,325          4        1,831.3        1,813.5        1,022        2,676         929.3  fcntl                 
+      0.0            5,821          4        1,455.3        1,257.0        1,083        2,224         519.2  write                 
+      0.0            4,769          1        4,769.0        4,769.0        4,769        4,769           0.0  pthread_kill          
+      0.0            4,418          2        2,209.0        2,209.0        2,144        2,274          91.9  read                  
+      0.0            2,254          1        2,254.0        2,254.0        2,254        2,254           0.0  fwrite                
+      0.0            2,094          1        2,094.0        2,094.0        2,094        2,094           0.0  bind                  
+      0.0            1,663          1        1,663.0        1,663.0        1,663        1,663           0.0  pthread_cond_broadcast
+      0.0            1,153          1        1,153.0        1,153.0        1,153        1,153           0.0  pthread_cond_signal   
+
+[4/7] Executing 'cuda_api_sum' stats report
+
+ Time (%)  Total Time (ns)  Num Calls  Avg (ns)   Med (ns)   Min (ns)  Max (ns)   StdDev (ns)          Name        
+ --------  ---------------  ---------  ---------  ---------  --------  ---------  -----------  --------------------
+     64.1       30,904,015      4,455    6,936.9      340.0       180    660,547     18,695.7  cuEventSynchronize  
+     14.6        7,041,682      6,926    1,016.7      992.0       812      7,535        186.1  cuEventRecord       
+      5.8        2,804,365      1,114    2,517.4    2,445.0     1,773     27,293        970.2  cuLaunchKernel      
+      5.0        2,398,621      1,417    1,692.7    1,643.0     1,383      7,344        330.0  cuMemcpyHtoDAsync_v2
+      3.7        1,764,747      1,124    1,570.1    1,503.0     1,342      3,637        197.6  cuMemcpyDtoHAsync_v2
+      3.2        1,563,724          3  521,241.3  271,224.0    90,806  1,201,694    596,154.0  cuModuleLoadDataEx  
+      1.1          523,673          6   87,278.8    3,141.0     1,903    272,577    131,575.9  cuMemHostAlloc      
+      1.0          477,779         16   29,861.2    2,209.0     1,703    174,978     59,755.9  cuMemFreeHost       
+      0.7          333,947         10   33,394.7    2,289.0     1,753    314,027     98,605.0  cuMemAllocHost_v2   
+      0.3          150,529         20    7,526.4    1,799.0     1,253     51,850     14,668.6  cuMemFree_v2        
+      0.3          125,821         20    6,291.1    1,643.0       991     39,997     11,585.3  cuMemAlloc_v2       
+      0.1           44,326          3   14,775.3   12,805.0     4,479     27,042     11,409.8  cuMemcpyHtoD_v2     
+      0.1           27,647         23    1,202.0    1,623.0       270      2,204        883.6  cuStreamSynchronize 
+      0.1           26,672          1   26,672.0   26,672.0    26,672     26,672          0.0  cuMemcpyDtoH_v2     
+      0.0           12,845          1   12,845.0   12,845.0    12,845     12,845          0.0  cuMemGetInfo_v2     
+      0.0            9,520         34      280.0      200.5       110      1,623        272.5  cuEventCreate       
+      0.0            6,392          1    6,392.0    6,392.0     6,392      6,392          0.0  cuMemsetD8Async     
+      0.0            6,153         34      181.0      131.0        90        601        143.0  cuEventDestroy_v2   
+      0.0            2,624          2    1,312.0    1,312.0       380      2,244      1,318.0  cuCtxSetCurrent     
+
+[5/7] Executing 'cuda_gpu_kern_sum' stats report
+
+ Time (%)  Total Time (ns)  Instances  Avg (ns)  Med (ns)  Min (ns)  Max (ns)  StdDev (ns)          Name        
+ --------  ---------------  ---------  --------  --------  --------  --------  -----------  --------------------
+     71.2       15,064,972      1,001  15,049.9  14,752.0    14,048    42,241      2,824.7  k_morse_fast        
+     28.7        6,080,160        101  60,199.6  60,161.0    59,904    60,673        171.7  calc_neigh_list_cell
+      0.0            4,640         11     421.8     416.0       416       480         19.3  kernel_zero         
+      0.0              768          1     768.0     768.0       768       768          0.0  kernel_info         
+
+[6/7] Executing 'cuda_gpu_mem_time_sum' stats report
+
+ Time (%)  Total Time (ns)  Count  Avg (ns)  Med (ns)  Min (ns)  Max (ns)  StdDev (ns)           Operation          
+ --------  ---------------  -----  --------  --------  --------  --------  -----------  ----------------------------
+     66.9        6,697,699  1,420   4,716.7   6,176.0       256     6,976      2,402.2  [CUDA memcpy Host-to-Device]
+     33.1        3,320,607  1,125   2,951.7   3,264.0       288     7,136        926.7  [CUDA memcpy Device-to-Host]
+      0.0              384      1     384.0     384.0       384       384          0.0  [CUDA memset]               
+
+[7/7] Executing 'cuda_gpu_mem_size_sum' stats report
+
+ Total (MB)  Count  Avg (MB)  Med (MB)  Min (MB)  Max (MB)  StdDev (MB)           Operation          
+ ----------  -----  --------  --------  --------  --------  -----------  ----------------------------
+    162.089  1,420     0.114     0.157     0.000     0.157        0.068  [CUDA memcpy Host-to-Device]
+     96.135  1,125     0.085     0.096     0.000     0.096        0.030  [CUDA memcpy Device-to-Host]
+      0.000      1     0.000     0.000     0.000     0.000        0.000  [CUDA memset]               
+
+Generated:
+	/home/slava8519/tdmd_С++/benchmarks/phase1_baseline/lammps_small/results_20260408_195555/trace.nsys-rep
+	/home/slava8519/tdmd_С++/benchmarks/phase1_baseline/lammps_small/results_20260408_195555/trace.sqlite

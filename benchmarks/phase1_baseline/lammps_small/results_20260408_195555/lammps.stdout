@@ -1,0 +1,95 @@
+LAMMPS (2 Aug 2023 - Update 3)
+Reading data file ...
+  orthogonal box = (0 0 0) to (36.15 36.15 36.15)
+  1 by 1 by 1 MPI processor grid
+  reading atoms ...
+  4000 atoms
+  read_data CPU = 0.003 seconds
+
+CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE
+
+Your simulation uses code contributions which should be cited:
+- GPU package (short-range, long-range and three-body potentials): doi:10.1016/j.cpc.2010.12.021, doi:10.1016/j.cpc.2011.10.012, doi:10.1016/j.cpc.2013.08.002, doi:10.1016/j.commatsci.2014.10.068, doi:10.1016/j.cpc.2016.10.020, doi:10.3233/APC200086
+The log file lists these citations in BibTeX format.
+
+CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE
+
+
+--------------------------------------------------------------------------
+- Using acceleration for morse:
+-  with 1 proc(s) per device.
+-  Horizontal vector operations: ENABLED
+-  Shared memory system: No
+--------------------------------------------------------------------------
+Device 0: NVIDIA GeForce RTX 5080, 84 CUs, 15/15 GB, 2.6 GHZ (Mixed Precision)
+--------------------------------------------------------------------------
+
+Initializing Device and compiling on process 0...Done.
+Initializing Device 0 on core 0...Done.
+
+Generated 0 of 0 mixed pair_coeff terms from geometric mixing rule
+Setting up Verlet run ...
+  Unit style    : metal
+  Current step  : 0
+  Time step     : 0.001
+Per MPI rank memory allocation (min/avg/max) = 2.383 | 2.383 | 2.383 Mbytes
+   Step          Temp          PotEng         KinEng         TotEng         Press     
+         0   300           -13556.968      155.0734      -13401.895      60195.275    
+       100   183.14225     -13496.537      94.668304     -13401.869      62781.898    
+       200   161.10217     -13485.139      83.275535     -13401.863      63234.001    
+       300   149.31964     -13479.043      77.185011     -13401.858      63528.626    
+       400   149.28771     -13479.025      77.16851      -13401.857      63557.13     
+       500   147.95209     -13478.325      76.478108     -13401.847      63583.414    
+       600   148.7315      -13478.738      76.880994     -13401.857      63529.051    
+       700   150.56364     -13479.676      77.828048     -13401.847      63534.107    
+       800   153.45147     -13481.179      79.320804     -13401.858      63468.481    
+       900   153.34973     -13481.126      79.268213     -13401.858      63438.881    
+      1000   149.72273     -13479.251      77.393373     -13401.857      63507.186    
+Loop time of 0.0726623 on 1 procs for 1000 steps with 4000 atoms
+
+Performance: 1189.062 ns/day, 0.020 hours/ns, 13762.297 timesteps/s, 55.049 Matom-step/s
+99.6% CPU use with 1 MPI tasks x no OpenMP threads
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 0.054654   | 0.054654   | 0.054654   |   0.0 | 75.22
+Neigh   | 3.732e-06  | 3.732e-06  | 3.732e-06  |   0.0 |  0.01
+Comm    | 0.012593   | 0.012593   | 0.012593   |   0.0 | 17.33
+Output  | 0.00011093 | 0.00011093 | 0.00011093 |   0.0 |  0.15
+Modify  | 0.0034122  | 0.0034122  | 0.0034122  |   0.0 |  4.70
+Other   |            | 0.001888   |            |       |  2.60
+
+Nlocal:           4000 ave        4000 max        4000 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Nghost:           5841 ave        5841 max        5841 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Neighs:              0 ave           0 max           0 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+
+Total # of neighbors = 0
+Ave neighs/atom = 0
+Neighbor list builds = 100
+Dangerous builds not checked
+
+
+---------------------------------------------------------------------
+      Device Time Info (average): 
+---------------------------------------------------------------------
+Data Transfer:   0.0172 s.
+Neighbor copy:   0.0017 s.
+Neighbor build:  0.0069 s.
+Force calc:      0.0192 s.
+Device Overhead: 0.0140 s.
+Average split:   1.0000.
+Lanes / atom:    4.
+Vector width:    32.
+Prefetch mode:   None.
+Max Mem / Proc:  3.44 MB.
+CPU Neighbor:    0.0043 s.
+CPU Cast/Pack:   0.0070 s.
+CPU Driver_Time: 0.0112 s.
+CPU Idle_Time:   0.0336 s.
+---------------------------------------------------------------------
+
+Total wall time: 0:00:00

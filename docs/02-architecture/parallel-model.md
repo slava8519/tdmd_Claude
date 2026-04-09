@@ -5,9 +5,32 @@
 
 ---
 
-## Two axes of parallelism
+## Three levels of parallelism
 
-TDMD parallelizes along **two axes**:
+TDMD has **three independent levels of parallelism** that compose multiplicatively:
+
+| Level | Scope | Mechanism | Controlled by |
+|---|---|---|---|
+| 1 | Between ranks | TD ring + SD halo exchange | MPI, `comm` module |
+| 2 | Within one GPU, across zones | Batched kernel launches (all Ready zones combined) | `scheduler` + `potentials` |
+| 3 | Within one kernel, across atoms | SIMT, one thread per atom | CUDA runtime (automatic) |
+
+```
+Total parallelism = P_ranks  x  N_atoms_in_batch  x  (SIMT automatic)
+                    Level 1     Level 2                Level 3
+```
+
+Level 1 scales the number of GPUs. Level 2 fills each GPU. Level 3 is free (hardware). All three are orthogonal. The full description of Levels 2 and 3 lives in `docs/02-architecture/gpu-strategy.md`.
+
+**Common misconception:** "filling one GPU is the job of spatial decomposition." This is **incorrect**. SD is a Level 1 mechanism (inter-rank communication). Filling one GPU is achieved by Level 2 (batched kernels) and Level 3 (SIMT), which are orthogonal to SD.
+
+**This document describes Level 1 (inter-rank parallelism).** For intra-GPU parallelism, see `docs/02-architecture/gpu-strategy.md`.
+
+---
+
+## Two axes of inter-rank parallelism (Level 1)
+
+TDMD parallelizes across ranks along **two axes**:
 
 1. **Time** — Time Decomposition. Different ranks compute different `time_step` values for the same atoms. This is the unique TD mode.
 2. **Space** — classic spatial decomposition. Different ranks own different regions of the box and exchange ghost atoms on halo boundaries. This is what LAMMPS does.
