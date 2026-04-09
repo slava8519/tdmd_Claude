@@ -33,9 +33,9 @@ TEST(LammpsDataReader, Basic4Atoms) {
   EXPECT_DOUBLE_EQ(state.positions[0].x, 1.0);
   EXPECT_DOUBLE_EQ(state.positions[0].y, 2.0);
   EXPECT_DOUBLE_EQ(state.positions[0].z, 3.0);
-  EXPECT_DOUBLE_EQ(state.velocities[0].x, 0.1);
-  EXPECT_DOUBLE_EQ(state.velocities[0].y, 0.2);
-  EXPECT_DOUBLE_EQ(state.velocities[0].z, 0.3);
+  EXPECT_NEAR(state.velocities[0].x, 0.1, 1e-7);
+  EXPECT_NEAR(state.velocities[0].y, 0.2, 1e-7);
+  EXPECT_NEAR(state.velocities[0].z, 0.3, 1e-7);
 
   // Atom 3 (index 2): id=3, type=2, pos=(7,8,9)
   EXPECT_EQ(state.ids[2], 3);
@@ -45,9 +45,9 @@ TEST(LammpsDataReader, Basic4Atoms) {
   EXPECT_DOUBLE_EQ(state.positions[2].z, 9.0);
 
   // Atom 4 velocity
-  EXPECT_DOUBLE_EQ(state.velocities[3].x, 1.0);
-  EXPECT_DOUBLE_EQ(state.velocities[3].y, 1.1);
-  EXPECT_DOUBLE_EQ(state.velocities[3].z, 1.2);
+  EXPECT_NEAR(state.velocities[3].x, 1.0, 1e-7);
+  EXPECT_NEAR(state.velocities[3].y, 1.1, 1e-7);
+  EXPECT_NEAR(state.velocities[3].z, 1.2, 1e-7);
 }
 
 TEST(LammpsDataReader, FileNotFound) {

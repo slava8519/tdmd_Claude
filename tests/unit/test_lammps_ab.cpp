@@ -17,6 +17,7 @@
 #include "potentials/eam_alloy.hpp"
 #include "potentials/force_compute.hpp"
 #include "potentials/morse.hpp"
+#include "support/precision_tolerance.hpp"
 
 #ifndef TDMD_TEST_DATA_DIR
 #error "TDMD_TEST_DATA_DIR must be defined"
@@ -27,6 +28,7 @@ static std::string data_dir() { return TDMD_TEST_DATA_DIR; }
 using namespace tdmd;
 using namespace tdmd::potentials;
 using namespace tdmd::neighbors;
+using namespace tdmd::testing;
 
 /// Compare TDMD forces against LAMMPS reference dump.
 /// Returns max absolute force-component error.
@@ -69,8 +71,7 @@ TEST(LammpsAB, MorseRun0ForceMatch) {
   real max_err = compare_forces(state, ref);
 
   // On a perfect FCC lattice, all forces are ~0 (machine epsilon).
-  // Both TDMD and LAMMPS should agree to < 1e-6.
-  EXPECT_LT(max_err, 1e-6)
+  EXPECT_LT(max_err, kForceTolerance)
       << "Max force-component error: " << max_err;
 }
 
@@ -89,6 +90,6 @@ TEST(LammpsAB, EamRun0ForceMatch) {
 
   real max_err = compare_forces(state, ref);
 
-  EXPECT_LT(max_err, 1e-6)
+  EXPECT_LT(max_err, kForceTolerance)
       << "Max force-component error: " << max_err;
 }

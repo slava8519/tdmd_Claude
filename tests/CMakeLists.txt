@@ -36,6 +36,7 @@ add_executable(tdmd_unit_tests
   unit/test_sequential_scheduler.cpp
 )
 target_link_libraries(tdmd_unit_tests PRIVATE tdmd::core tdmd::io tdmd::domain tdmd::neighbors tdmd::potentials tdmd::integrator tdmd::scheduler GTest::gtest_main)
+target_include_directories(tdmd_unit_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_definitions(tdmd_unit_tests PRIVATE
   TDMD_TEST_DATA_DIR="${TDMD_TEST_DATA_DIR}"
 )
@@ -52,12 +53,14 @@ if(TDMD_ENABLE_CUDA)
     unit/test_device_lammps_ab.cu
     unit/test_device_nve_drift.cu
     unit/test_pipeline_scheduler.cu
+    unit/test_fast_pipeline.cu
     unit/test_nvt_thermostat.cu
   )
   target_link_libraries(tdmd_cuda_tests PRIVATE
     tdmd::core tdmd::io tdmd::domain tdmd::neighbors tdmd::potentials tdmd::integrator tdmd::scheduler
     GTest::gtest_main
   )
+  target_include_directories(tdmd_cuda_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
   target_compile_definitions(tdmd_cuda_tests PRIVATE
     TDMD_TEST_DATA_DIR="${TDMD_TEST_DATA_DIR}"
   )
@@ -76,6 +79,7 @@ if(TDMD_ENABLE_CUDA)
       GTest::gtest
       MPI::MPI_CXX
     )
+    target_include_directories(tdmd_mpi_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
     target_compile_definitions(tdmd_mpi_tests PRIVATE
       TDMD_TEST_DATA_DIR="${TDMD_TEST_DATA_DIR}"
     )
@@ -89,6 +93,8 @@ if(TDMD_ENABLE_CUDA)
       COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 $<TARGET_FILE:tdmd_mpi_tests> --gtest_filter=DistributedPipeline.PipelineNVEConservation)
     add_test(NAME DistributedPipeline.ZoneTimeStepsAdvance
       COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 $<TARGET_FILE:tdmd_mpi_tests> --gtest_filter=DistributedPipeline.ZoneTimeStepsAdvance)
+    add_test(NAME DistributedPipeline.NVTTemperatureConverges
+      COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 $<TARGET_FILE:tdmd_mpi_tests> --gtest_filter=DistributedPipeline.NVTTemperatureConverges)
 
     # ---- M6 Hybrid 2D tests (4 ranks: P_time=2, P_space=2) ----
     add_executable(tdmd_m6_tests
@@ -99,6 +105,7 @@ if(TDMD_ENABLE_CUDA)
       GTest::gtest
       MPI::MPI_CXX
     )
+    target_include_directories(tdmd_m6_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
     target_compile_definitions(tdmd_m6_tests PRIVATE
       TDMD_TEST_DATA_DIR="${TDMD_TEST_DATA_DIR}"
     )

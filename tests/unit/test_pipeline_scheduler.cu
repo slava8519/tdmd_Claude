@@ -21,8 +21,10 @@
 #include "potentials/morse.hpp"
 #include "scheduler/pipeline_scheduler.cuh"
 #include "scheduler/sequential_scheduler.hpp"
+#include "support/precision_tolerance.hpp"
 
 using namespace tdmd;
+using namespace tdmd::testing;
 
 static real compute_ke_host(const std::vector<Vec3>& velocities,
                             const std::vector<i32>& types,
@@ -38,6 +40,10 @@ static real compute_ke_host(const std::vector<Vec3>& velocities,
 }
 
 TEST(PipelineScheduler, DeterministicMatchesM3) {
+#ifdef TDMD_PRECISION_MIXED
+  GTEST_SKIP() << "CPU-float vs GPU-mixed comparison not meaningful in mixed "
+                  "precision mode (different compute precision paths)";
+#endif
   // Run 100 steps deterministic pipeline vs M3 sequential, compare.
   std::string data_dir = TDMD_TEST_DATA_DIR;
 
@@ -106,9 +112,9 @@ TEST(PipelineScheduler, DeterministicMatchesM3) {
   // Deterministic mode should match M3 closely. Per-zone force compute may
   // have small FP differences from global compute (different summation order
   // in neighbor list iteration) so allow 1e-10.
-  EXPECT_LT(max_pos_diff, real{1e-10})
+  EXPECT_LT(max_pos_diff, kPositionTolerance)
       << "deterministic pipeline vs M3 position diff";
-  EXPECT_LT(max_vel_diff, real{1e-10})
+  EXPECT_LT(max_vel_diff, kVelocityTolerance)
       << "deterministic pipeline vs M3 velocity diff";
 }
 

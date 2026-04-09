@@ -14,8 +14,10 @@
 #include "potentials/device_eam.cuh"
 #include "potentials/device_morse.cuh"
 #include "potentials/eam_alloy.hpp"
+#include "support/precision_tolerance.hpp"
 
 using namespace tdmd;
+using namespace tdmd::testing;
 
 // Compare GPU forces (indexed by state.ids) against LAMMPS DumpAtom (sorted by id).
 static real max_force_diff(const std::vector<Vec3>& gpu_forces,
@@ -68,7 +70,7 @@ TEST(DeviceLammpsAB, MorseRun0ForceMatch) {
   ASSERT_EQ(ref.size(), n);
 
   real diff = max_force_diff(gpu_forces, state.ids, ref);
-  EXPECT_LT(diff, real{1e-6})
+  EXPECT_LT(diff, kForceTolerance)
       << "GPU Morse vs LAMMPS reference max force diff = " << diff;
 }
 
@@ -108,6 +110,6 @@ TEST(DeviceLammpsAB, EamRun0ForceMatch) {
   ASSERT_EQ(ref.size(), n);
 
   real diff = max_force_diff(gpu_forces, state.ids, ref);
-  EXPECT_LT(diff, real{1e-6})
+  EXPECT_LT(diff, kForceTolerance)
       << "GPU EAM vs LAMMPS reference max force diff = " << diff;
 }

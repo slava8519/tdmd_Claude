@@ -14,8 +14,10 @@
 #include "neighbors/neighbor_list.hpp"
 #include "potentials/device_eam.cuh"
 #include "potentials/eam_alloy.hpp"
+#include "support/precision_tolerance.hpp"
 
 using namespace tdmd;
+using namespace tdmd::testing;
 
 TEST(DeviceEam, MatchesCPUForces256Atoms) {
   std::string data_dir = TDMD_TEST_DATA_DIR;
@@ -50,7 +52,7 @@ TEST(DeviceEam, MatchesCPUForces256Atoms) {
   potentials::DeviceEam gpu_eam;
   gpu_eam.upload_tables(eam);
 
-  DeviceBuffer<real> d_energy(1);
+  DeviceBuffer<accum_t> d_energy(1);
   d_energy.zero();
 
   gpu_eam.compute(d_pos.data(), d_forces.data(), d_types.data(),
@@ -63,7 +65,7 @@ TEST(DeviceEam, MatchesCPUForces256Atoms) {
   std::vector<Vec3> gpu_forces(n);
   d_forces.copy_to_host(gpu_forces.data(), n);
 
-  real gpu_energy = 0;
+  accum_t gpu_energy = 0;
   d_energy.copy_to_host(&gpu_energy, 1);
 
   // Compare forces. EAM has more numerical noise than Morse, but should
@@ -77,11 +79,11 @@ TEST(DeviceEam, MatchesCPUForces256Atoms) {
     max_diff = std::max(max_diff, diff);
   }
 
-  EXPECT_LT(max_diff, real{1e-8})
+  EXPECT_LT(max_diff, kForceTolerance)
       << "Max force component difference between GPU and CPU EAM";
 
   // Compare energy.
   real energy_diff = std::abs(gpu_energy - cpu_energy);
-  EXPECT_LT(energy_diff, real{1e-6})
+  EXPECT_LT(energy_diff, kEnergyRelativeTolerance * std::abs(gpu_energy) + 1e-12)
       << "Energy difference: GPU=" << gpu_energy << " CPU=" << cpu_energy;
 }

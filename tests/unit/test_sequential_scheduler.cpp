@@ -14,8 +14,10 @@
 #include "potentials/force_compute.hpp"
 #include "potentials/morse.hpp"
 #include "scheduler/sequential_scheduler.hpp"
+#include "support/precision_tolerance.hpp"
 
 using namespace tdmd;
+using namespace tdmd::testing;
 
 // Helper: compute total energy (KE + PE).
 static real total_energy(const SystemState& state, real pe) {
@@ -107,11 +109,11 @@ TEST(SequentialScheduler, MatchesGlobalMD) {
   // Should be bit-identical since the only difference is atom ordering,
   // and forces use the same global neighbor list.
   // Allow tiny tolerance for floating-point reordering effects.
-  EXPECT_LT(max_pos_diff, real{1e-12})
+  EXPECT_LT(max_pos_diff, kPositionTolerance)
       << "position mismatch after " << nsteps << " steps";
-  EXPECT_LT(max_vel_diff, real{1e-12})
+  EXPECT_LT(max_vel_diff, kVelocityTolerance)
       << "velocity mismatch after " << nsteps << " steps";
-  EXPECT_LT(max_force_diff, real{1e-10})
+  EXPECT_LT(max_force_diff, kForceTolerance)
       << "force mismatch after " << nsteps << " steps";
 }
 

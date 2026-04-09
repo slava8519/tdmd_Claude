@@ -11,12 +11,15 @@
 #include <mpi.h>
 
 #include <cmath>
+#include <numeric>
+#include <random>
 #include <string>
 #include <vector>
 
 #include "core/constants.hpp"
 #include "core/device_buffer.cuh"
 #include "core/types.hpp"
+#include "integrator/device_nose_hoover.cuh"
 #include "integrator/velocity_verlet.hpp"
 #include "io/lammps_data_reader.hpp"
 #include "neighbors/neighbor_list.hpp"
@@ -24,8 +27,10 @@
 #include "potentials/morse.hpp"
 #include "scheduler/distributed_pipeline_scheduler.cuh"
 #include "scheduler/pipeline_scheduler.cuh"
+#include "support/precision_tolerance.hpp"
 
 using namespace tdmd;
+using namespace tdmd::testing;
 
 static real compute_ke_host(const std::vector<Vec3>& velocities,
                             const std::vector<i32>& types,
@@ -41,10 +46,19 @@ static real compute_ke_host(const std::vector<Vec3>& velocities,
 }
 
 // Helper: compare two SystemStates atom-by-atom using ID mapping.
+/// Minimum-image-aware position comparison for PBC-safe deterministic match.
+static real pbc_component_diff(real a, real b, real box_len) {
+  real d = std::abs(a - b);
+  if (d > box_len * real{0.5}) d = box_len - d;
+  return d;
+}
+
 static void compare_states(const SystemState& s1, const SystemState& s2,
                            real pos_tol, real vel_tol, const std::string& label) {
   auto n = static_cast<std::size_t>(s1.natoms);
   ASSERT_EQ(s1.natoms, s2.natoms);
+
+  Vec3 box_size = s1.box.size();
 
   // Build ID→index maps.
   std::vector<std::size_t> map1(n), map2(n);
@@ -57,12 +71,16 @@ static void compare_states(const SystemState& s1, const SystemState& s2,
   for (std::size_t id = 0; id < n; ++id) {
     auto i1 = map1[id];
     auto i2 = map2[id];
-    auto d = [](Vec3 a, Vec3 b) {
-      return std::max({std::abs(a.x - b.x), std::abs(a.y - b.y),
-                       std::abs(a.z - b.z)});
-    };
-    max_pos_diff = std::max(max_pos_diff, d(s1.positions[i1], s2.positions[i2]));
-    max_vel_diff = std::max(max_vel_diff, d(s1.velocities[i1], s2.velocities[i2]));
+    // PBC-aware position comparison.
+    real dp = std::max({pbc_component_diff(s1.positions[i1].x, s2.positions[i2].x, box_size.x),
+                        pbc_component_diff(s1.positions[i1].y, s2.positions[i2].y, box_size.y),
+                        pbc_component_diff(s1.positions[i1].z, s2.positions[i2].z, box_size.z)});
+    max_pos_diff = std::max(max_pos_diff, dp);
+    // Velocity comparison (no PBC wrap).
+    real dv = std::max({std::abs(s1.velocities[i1].x - s2.velocities[i2].x),
+                        std::abs(s1.velocities[i1].y - s2.velocities[i2].y),
+                        std::abs(s1.velocities[i1].z - s2.velocities[i2].z)});
+    max_vel_diff = std::max(max_vel_diff, dv);
   }
 
   EXPECT_LT(max_pos_diff, pos_tol) << label << " position diff";
@@ -133,7 +151,7 @@ TEST(DistributedPipeline, DeterministicMatchesSingleRank) {
   if (world_rank == 0) {
     // Distributed mode with 2 ranks may have slightly different FP order
     // from single-rank due to zone assignment differences. Allow 1e-6.
-    compare_states(state_ref, state_m5, real{1e-6}, real{1e-6},
+    compare_states(state_ref, state_m5, kPositionTolerance, kVelocityTolerance,
                    "distributed vs single-rank");
   }
 }
@@ -238,6 +256,130 @@ TEST(DistributedPipeline, ZoneTimeStepsAdvance) {
           << "rank " << world_rank << " zone " << z.id
           << " at step " << z.time_step;
     }
+  }
+}
+
+static real compute_temperature(real ke, i32 natoms) {
+  i32 n_dof = 3 * natoms - 3;
+  return real{2} * ke / (static_cast<real>(n_dof) * kBoltzmann);
+}
+
+/// Initialize velocities from Maxwell-Boltzmann distribution at given T.
+/// Removes center-of-mass momentum and rescales to exact target T.
+static void init_velocities(SystemState& state, real t_target, unsigned seed) {
+  auto n = static_cast<std::size_t>(state.natoms);
+  std::mt19937 rng(seed);
+  std::normal_distribution<real> gauss(real{0}, real{1});
+
+  for (std::size_t i = 0; i < n; ++i) {
+    real mass = state.masses[static_cast<std::size_t>(state.types[i])];
+    real sigma = std::sqrt(kBoltzmann * t_target / (mass * kMvv2e));
+    state.velocities[i].x = sigma * gauss(rng);
+    state.velocities[i].y = sigma * gauss(rng);
+    state.velocities[i].z = sigma * gauss(rng);
+  }
+
+  Vec3 com_v{0, 0, 0};
+  real total_mass = 0;
+  for (std::size_t i = 0; i < n; ++i) {
+    real mass = state.masses[static_cast<std::size_t>(state.types[i])];
+    com_v.x += mass * state.velocities[i].x;
+    com_v.y += mass * state.velocities[i].y;
+    com_v.z += mass * state.velocities[i].z;
+    total_mass += mass;
+  }
+  com_v.x /= total_mass;
+  com_v.y /= total_mass;
+  com_v.z /= total_mass;
+  for (std::size_t i = 0; i < n; ++i) {
+    state.velocities[i].x -= com_v.x;
+    state.velocities[i].y -= com_v.y;
+    state.velocities[i].z -= com_v.z;
+  }
+
+  real ke = compute_ke_host(state.velocities, state.types, state.masses,
+                            state.natoms);
+  real t_current = compute_temperature(ke, static_cast<i32>(state.natoms));
+  if (t_current > 0) {
+    real scale = std::sqrt(t_target / t_current);
+    for (std::size_t i = 0; i < n; ++i) {
+      state.velocities[i].x *= scale;
+      state.velocities[i].y *= scale;
+      state.velocities[i].z *= scale;
+    }
+  }
+}
+
+// Regression test: NVT multi-rank atom range bug.
+// Bug: first_local_atom_/local_atom_count_ computed before assign_atoms(),
+// resulting in 0-atom range -> thermostat is no-op (NVE behavior).
+//
+// Strategy: Init at 100K, target 500K. NVE from 100K on cold FCC lattice
+// gives T < 100K (KE -> PE). Working NVT must heat the system to ~500K.
+// With the bug, T stays low -> rel_err >> 0.30 -> test fails.
+TEST(DistributedPipeline, NVTTemperatureConverges) {
+  int world_rank = 0;
+  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+
+  std::string data_dir = TDMD_TEST_DATA_DIR;
+  SystemState state = io::read_lammps_data(data_dir + "/cu_fcc_256.data");
+
+  // Initialize at 100K — well below target.
+  init_velocities(state, real{100.0}, 42);
+
+  real D = real{0.3429}, alpha = real{1.3588}, r0 = real{2.866}, rc = real{6.0};
+  potentials::MorseParams params{D, alpha, r0, rc, rc * rc};
+
+  real t_target = real{500.0};
+
+  scheduler::DistributedConfig cfg;
+  cfg.dt = real{0.001};
+  cfg.r_skin = real{1.0};
+  cfg.rebuild_every = 10;
+  cfg.deterministic = true;
+  cfg.t_target = t_target;
+  cfg.t_period = real{0.1};
+  cfg.nhc_length = 3;
+
+  scheduler::DistributedPipelineScheduler sched(
+      state.box, static_cast<i32>(state.natoms), params, cfg, MPI_COMM_WORLD);
+  sched.upload(state.positions.data(), state.velocities.data(),
+               state.forces.data(), state.types.data(), state.ids.data(),
+               state.masses.data(), static_cast<i32>(state.masses.size()));
+
+  // Equilibrate 1000 steps.
+  sched.run_until(1000);
+
+  // Collect temperature over next 1000 steps, sampling every 100.
+  std::vector<real> temps;
+  for (i32 step = 1100; step <= 2000; step += 100) {
+    sched.run_until(step);
+    sched.download(state.positions.data(), state.velocities.data(),
+                   state.forces.data(), state.types.data(), state.ids.data(),
+                   static_cast<i32>(state.natoms));
+
+    if (world_rank == 0) {
+      real ke = compute_ke_host(state.velocities, state.types, state.masses,
+                                state.natoms);
+      real t = compute_temperature(ke, static_cast<i32>(state.natoms));
+      temps.push_back(t);
+    }
+  }
+
+  if (world_rank == 0) {
+    real t_mean = std::accumulate(temps.begin(), temps.end(), real{0}) /
+                  static_cast<real>(temps.size());
+
+    // With working thermostat, T should rise from 100K toward 500K.
+    // Allow 30% tolerance for 256-atom system.
+    real rel_err = std::abs(t_mean - t_target) / t_target;
+    printf("  NVT multi-rank: <T> = %.1f K, target = %.1f K, rel_err = %.3f\n",
+           static_cast<double>(t_mean), static_cast<double>(t_target),
+           static_cast<double>(rel_err));
+    EXPECT_LT(rel_err, real{0.30})
+        << "<T> = " << t_mean << " K, target = " << t_target
+        << " K, rel_err = " << rel_err
+        << " (if rel_err >> 0.30, thermostat is likely no-op — atom range bug)";
   }
 }
 

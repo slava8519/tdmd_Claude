@@ -9,9 +9,11 @@
 #include "neighbors/neighbor_list.hpp"
 #include "potentials/force_compute.hpp"
 #include "potentials/morse.hpp"
+#include "support/precision_tolerance.hpp"
 
 using namespace tdmd;
 using namespace tdmd::potentials;
+using namespace tdmd::testing;
 
 // Morse parameters for Cu-Cu (typical test values).
 static constexpr real kD = 0.3429;     // eV
@@ -62,7 +64,7 @@ TEST(Morse, AnalyticForceMatch) {
     pot.compute(r2, energy, fpair);
 
     real expected_energy = morse_energy(r);
-    EXPECT_NEAR(energy, expected_energy, 1e-12)
+    EXPECT_NEAR(energy, expected_energy, kAnalyticTolerance)
         << "energy mismatch at r=" << r;
 
     // fpair = -dU/dr / r, so force magnitude = -fpair * r (on j directed to i)
@@ -70,7 +72,7 @@ TEST(Morse, AnalyticForceMatch) {
     // Analytic F = -dU/dr (radial), so |force| = |fpair * r| should equal |-dU/dr|
     real computed_force = -fpair * r;  // = dU/dr
     real expected_force = -morse_force(r);  // = dU/dr
-    EXPECT_NEAR(computed_force, expected_force, 1e-12)
+    EXPECT_NEAR(computed_force, expected_force, kAnalyticTolerance)
         << "force mismatch at r=" << r;
   }
 }

@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "support/precision_tolerance.hpp"
 #include "core/device_buffer.cuh"
 #include "core/device_system_state.cuh"
 #include "core/types.hpp"
@@ -17,6 +18,7 @@
 #include "potentials/morse.hpp"
 
 using namespace tdmd;
+using namespace tdmd::testing;
 
 TEST(DeviceMorse, MatchesCPUForces256Atoms) {
   // Load 256-atom Cu FCC structure.
@@ -51,7 +53,7 @@ TEST(DeviceMorse, MatchesCPUForces256Atoms) {
 
   potentials::MorseParams params{D, alpha, r0, rc, rc * rc};
 
-  DeviceBuffer<real> d_energy(1);
+  DeviceBuffer<accum_t> d_energy(1);
   d_energy.zero();
 
   potentials::compute_morse_gpu(d_pos.data(), d_forces.data(),
@@ -65,7 +67,7 @@ TEST(DeviceMorse, MatchesCPUForces256Atoms) {
   std::vector<Vec3> gpu_forces(n);
   d_forces.copy_to_host(gpu_forces.data(), n);
 
-  real gpu_energy = 0;
+  accum_t gpu_energy = 0;
   d_energy.copy_to_host(&gpu_energy, 1);
 
   // Compare forces atom-by-atom. Tolerance: 1e-10 for FP64.
@@ -78,11 +80,11 @@ TEST(DeviceMorse, MatchesCPUForces256Atoms) {
     max_diff = std::max(max_diff, diff);
   }
 
-  EXPECT_LT(max_diff, real{1e-10})
+  EXPECT_LT(max_diff, kForceTolerance)
       << "Max force component difference between GPU and CPU Morse";
 
-  // Compare energy.
-  real energy_diff = std::abs(gpu_energy - cpu_energy);
-  EXPECT_LT(energy_diff, real{1e-8})
+  // Compare energy. GPU accumulates in double, CPU in real.
+  accum_t energy_diff = std::abs(gpu_energy - static_cast<accum_t>(cpu_energy));
+  EXPECT_LT(energy_diff, kEnergyRelativeTolerance * std::abs(gpu_energy) + 1e-12)
       << "Energy difference: GPU=" << gpu_energy << " CPU=" << cpu_energy;
 }

@@ -12,11 +12,13 @@
 #include "neighbors/neighbor_list.hpp"
 #include "potentials/force_compute.hpp"
 #include "potentials/morse.hpp"
+#include "support/precision_tolerance.hpp"
 
 using namespace tdmd;
 using namespace tdmd::integrator;
 using namespace tdmd::potentials;
 using namespace tdmd::neighbors;
+using namespace tdmd::testing;
 
 /// Compute kinetic energy in eV (metal units).
 /// KE = 0.5 * m * v^2 * mvv2e
@@ -105,5 +107,5 @@ TEST(VelocityVerlet, StepAndTimeAdvance) {
   vv.drift(state);
 
   EXPECT_EQ(state.step, 1);
-  EXPECT_NEAR(state.time, 0.002, 1e-15);
+  EXPECT_NEAR(state.time, 0.002, kTimeTolerance);
 }

@@ -24,8 +24,10 @@
 #include "potentials/force_compute.hpp"
 #include "potentials/morse.hpp"
 #include "scheduler/pipeline_scheduler.cuh"
+#include "support/precision_tolerance.hpp"
 
 using namespace tdmd;
+using namespace tdmd::testing;
 
 static real compute_ke_host(const std::vector<Vec3>& velocities,
                             const std::vector<i32>& types,
@@ -180,15 +182,16 @@ TEST(NVTThermostat, DeviceKEMatchesHost) {
   d_types.copy_from_host(state.types.data(), n);
   d_masses.copy_from_host(state.masses.data(), state.masses.size());
 
-  real ke_device = integrator::device_compute_ke(d_vel.data(), d_types.data(),
-                                                 d_masses.data(), natoms);
-  real ke_host = compute_ke_host(state.velocities, state.types, state.masses,
-                                 state.natoms);
+  accum_t ke_device = integrator::device_compute_ke(d_vel.data(), d_types.data(),
+                                                    d_masses.data(), natoms);
+  accum_t ke_host = static_cast<accum_t>(
+      compute_ke_host(state.velocities, state.types, state.masses,
+                      state.natoms));
 
   // Should match to within floating-point tolerance.
-  EXPECT_GT(ke_host, real{0}) << "KE should be non-zero with initialized velocities";
-  real rel_diff = std::abs(ke_device - ke_host) / ke_host;
-  EXPECT_LT(rel_diff, real{1e-10})
+  EXPECT_GT(ke_host, 0.0) << "KE should be non-zero with initialized velocities";
+  accum_t rel_diff = std::abs(ke_device - ke_host) / ke_host;
+  EXPECT_LT(rel_diff, kReductionCrossTolerance)
       << "KE device=" << ke_device << " host=" << ke_host;
 }
 
@@ -237,7 +240,7 @@ TEST(NVTThermostat, DeterministicReproducibility) {
   }
   // Allow small FP differences from GPU KE reduction (different block sums
   // may accumulate in slightly different order across runs).
-  EXPECT_LT(max_diff, real{1e-10})
+  EXPECT_LT(max_diff, kPositionTolerance)
       << "Deterministic NVT max position diff: " << max_diff;
 }
 
@@ -262,11 +265,12 @@ TEST(AdaptiveDt, DeviceVmaxMatchesHost) {
   // Device v_max.
   DeviceBuffer<Vec3> d_vel(n);
   d_vel.copy_from_host(state.velocities.data(), n);
-  real dev_vmax = integrator::device_compute_vmax(d_vel.data(), natoms);
+  accum_t dev_vmax = integrator::device_compute_vmax(d_vel.data(), natoms);
 
   EXPECT_GT(host_vmax, real{0});
-  real rel_diff = std::abs(dev_vmax - host_vmax) / host_vmax;
-  EXPECT_LT(rel_diff, real{1e-10})
+  accum_t rel_diff = std::abs(dev_vmax - static_cast<accum_t>(host_vmax)) /
+                     static_cast<accum_t>(host_vmax);
+  EXPECT_LT(rel_diff, kReductionCrossTolerance)
       << "vmax device=" << dev_vmax << " host=" << host_vmax;
 }
 
