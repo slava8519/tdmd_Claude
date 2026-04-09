@@ -7,6 +7,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **NVT multi-rank atom range bug** in `DistributedPipelineScheduler`. `first_local_atom_`/`local_atom_count_` were computed in the constructor before `assign_atoms()`, resulting in a 0-atom range. The thermostat was effectively a no-op. Fix: recompute after `assign_atoms()` in `upload()`. Regression test: `DistributedPipeline.NVTTemperatureConverges`.
+- `MPI_DOUBLE` hardcoded in NVT `MPI_Allreduce` calls in both `DistributedPipelineScheduler` and `HybridPipelineScheduler`. Now uses `sizeof(real) == 8 ? MPI_DOUBLE : MPI_FLOAT` for FP32 correctness.
+- Version string updated from `0.1.0-m1` to `0.7.0-dev`.
+
+### Added
+- `tests/support/precision_tolerance.hpp` — FP32/FP64-aware tolerance constants and macros (`EXPECT_POSITION_NEAR`, `EXPECT_VELOCITY_NEAR`, `EXPECT_ENERGY_REL_NEAR`). For new tests only.
+- `DistributedPipeline.NVTTemperatureConverges` regression test (MPI, 2 ranks).
+
+### Performance (session 3B.7.fix)
+- **Fixed mixed mode performance regression** introduced by ADR 0007 design flaw. The original ADR mandated double-precision distance computation in force kernel for "deterministic cutoff check", which produced ~178 FP64 instructions per kernel call and gave a 5-7x slowdown on consumer GPU (RTX 5080, 1:32 FP64:FP32 ratio).
+- **Adopted LAMMPS-derived relative-coordinate trick.** Position storage remains `double` (Vec3D) on GPU because TDMD's GPU integrator requires it. But distance computation in force kernel uses one double-subtract followed by force_t cast: `force_t dx = (force_t)(pos_i.x - pos_j.x)`. This is one FP64 instruction per pair instead of ~10, while still being more accurate than pure float subtraction (avoids catastrophic cancellation).
+- **Removed epsilon buffer on cutoff** (`* 1.0001f`). LAMMPS doesn't use one; the neighbor list skin distance already provides the needed margin.
+- **PBC in force kernel kept but converted from double to force_t.** Moving PBC out of force kernel (LAMMPS's approach) would require image counter for unwrapped coordinates — deferred to potential Phase Б.
+- **Same fix applied to neighbor list builder.** Distance computation there is the second major FP64 hotspot.
+- **ADR 0007 updated** with revised "Force compute contract" reflecting the hybrid LAMMPS-derived approach. Includes "Why we don't follow LAMMPS exactly" explanation: GPU integrator preservation drives the difference.
+
+**Performance results on RTX 5080 (mixed mode, fast_pipeline scheduler):**
+
+| System | 3B.6 (double dist) | 3B.7.fix (relative trick) | Phase 2 FP32 | Recovery |
+|---|---|---|---|---|
+| tiny (256) | 3,348 ts/s | 14,814 ts/s | 16,413 ts/s | 90% |
+| small (4,000) | 2,090 ts/s | 9,139 ts/s | 9,828 ts/s | 93% |
+| medium (32,000) | 1,080 ts/s | 6,927 ts/s | 7,638 ts/s | 91% |
+
+Energy drift in mixed mode: 2.57e-13 per step (target: < 1e-9).
+
+Mixed mode is now usable as the production default. The remaining ~9% gap to Phase 2 FP32 baseline comes from PBC inside force kernel + 3 FP64 subtract instructions per pair from the relative-coordinate trick.
+
+### Phase 3 series — closed
+
+Phase 3 series of seven sub-sessions complete. TDMD now ships with mixed
+precision as default build mode, recovering 91% of Phase 2 FP32 performance
+while maintaining FP64-quality trajectory and energy conservation. See
+`docs/03-roadmap/current_milestone.md` for full Phase 3 summary.
+
+**Key sessions in chronological order:**
+- Session 1 (hygiene): docs sync, CI compile-only safety net
+- Session 2 (critical bugs): NVT multi-rank atom range fix, MPI type fix
+- Session 3A + 3A.1 (precision contract): ADR 0007 design, type aliases
+- Session 3B.1–3B.6 (implementation): build system, MPI helper, reductions, force kernels, integrator, test tolerance migration
+- Session 3B.7 (math intrinsics hygiene): device_math.cuh helper
+- Session 3B.7.fix (performance recovery): LAMMPS relative-coordinate trick
+- Meta-1 (process rule): ADR 0008 "Copy LAMMPS where applicable"
+- Session 3B.closing (this session): commits, backlog, roadmap update
+
+### Process
+- **ADR 0008 — Copy LAMMPS where applicable.** Adopted process rule: TDMD copies LAMMPS for general GPU MD problems (precision, force kernel layouts, integrator details, neighbor lists, MPI patterns) and only invents for TD-specific tasks (scheduler, zone state machine, kernel fusion, multi-step batching). Rationale: session 3B revealed that several architectural mistakes in ADR 0007 came from designing without checking LAMMPS first. Reading LAMMPS source takes 30-60 minutes; reinventing wrongly costs 10+ hours per mistake. The rule formalizes the practice.
+- **CLAUDE.md updated** with corresponding hard rule pointing to ADR 0008.
+
+### Changed
+- CI: `fail-fast: false` in build matrix so Debug/Release failures are reported independently.
+
+### Architecture (session 3A)
+- ADR 0007 — Precision contract. Defines LAMMPS-style mixed precision strategy: positions/velocities double, forces float, reductions always double. Replaces upcoming `TDMD_FP64` flag with `TDMD_PRECISION={mixed,fp64}`. Pure FP32 mode removed in 3B.
+- ADR 0006 (distributed scaffold honesty) updated with session 2 findings: silent NVT no-op was previously undetected, MPI_DOUBLE hardcoding was latent UB in FP32 distributed path.
+- New role-based type aliases in `src/core/types.hpp`: `pos_t`, `vel_t`, `force_t`, `accum_t`, `PositionVec`, `VelocityVec`, `ForceVec`. In session 3A these are aliases for `real` (no behavior change). In 3B they will diverge per ADR 0007.
+- `accum_t` is the only alias that diverges from `real` in 3A: it is always `double`, providing correct accumulator type for future reduction kernel migration.
+- `Vec3T<T>` template + `Vec3D`/`Vec3F` explicit-precision vector types added for session 3B use.
+- `tests/support/precision_tolerance.hpp` extended with placeholders: `kReductionTolerance`, `kEnergyDriftPerStepMixed`, `kEnergyDriftPerStepFP64`, `kAnalyticTolerance`, `EXPECT_ANALYTIC_NEAR`. Defined but not used until 3B.
+- Roadmap updated with Phase 3 (session 3B) backlog item for mixed precision implementation.
+- ADR 0007 refined in session 3A.1: tightened energy drift targets to `1e-12`/step (mixed) matching LAMMPS, EAM spline coefficients moved from `float` to `double` in both modes (constant tables don't benefit from FP32, accuracy matters near embedding curve minima), explicit "Force compute contract" section added with position-in-double / distance-in-double / force-expr-in-float pattern, and PE atomicAdd approach resolved to direct `atomicAdd(double*)` call.
+
 ### Architecture
 - ADR 0005 (batched kernels) — **Implemented**. `FastPipelineScheduler` in `src/scheduler/fast_pipeline_scheduler.{cuh,cu}`.
 - Stream parameter (`cudaStream_t stream = 0`) added to 5 device functions (`device_half_kick`, `device_drift`, `device_zero_forces`, `compute_morse_gpu`, `DeviceNeighborList::build`). Backward-compatible via default argument.

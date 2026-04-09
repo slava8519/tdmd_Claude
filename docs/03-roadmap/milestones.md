@@ -257,9 +257,58 @@ This milestone is open-ended and will be tracked as feature work, not as a hard 
 - ⬜ **Fused multi-step kernels (K>1)** — K consecutive force->integrate steps in a single kernel launch. TD-unique feature unavailable to spatial-decomposition codes like LAMMPS. Expected 1.3-3x speedup on small systems where launch overhead is significant. Depends on batched kernels (done). Separate ADR planned. Effort: ~2-3 days.
 - ⬜ **Force kernel vectorization** — horizontal vector operations (process 4 neighbors per SIMD lane, LAMMPS-style). Expected 2-3x in compute-bound regime on medium/large systems. Effort: TBD.
 - ⬜ **Single-GPU performance contract** — TDMD within 1.5x of LAMMPS-GPU. Status: **exceeded on medium** (2.38x), **not yet met on small** (0.79x, bottlenecked by nlist). Benchmark: `benchmarks/single_gpu_vs_lammps/`.
-- ⬜ **Mixed precision mode** — FP32 compute + FP64 accumulators. Extends production-safe run length beyond 30M steps. Currently FP32 drift is 3.5e-7 at 10k steps (linear growth).
+- ✅ **Phase 3 (sessions 3A–3B.7.fix): Mixed precision implementation** — LAMMPS-style mixed precision as production default. Positions/velocities in double, forces in float, reductions in double. LAMMPS-derived relative-coordinate trick for force kernel distance (double-subtract → float cast). Performance: 91% of Phase 2 FP32 baseline on medium (6,927 ts/s). Drift: 2.57e-13/step. ADR 0007 (precision contract) + ADR 0008 (copy LAMMPS rule). See `docs/03-roadmap/current_milestone.md` for full Phase 3 summary.
+- ⬜ **Phase Б: PBC outside force kernel + image counter** — deferred backlog. See trigger conditions below.
+- ⬜ **Session 3B.8: EAM full migration to role aliases** — EAM currently uses `real` (works in mixed mode but architectural debt vs ADR 0007 Force compute contract).
+- ⬜ **Session 3C: Remove `using real = ...` typedef** — full migration cleanup, cosmetic.
 - ⬜ **Dynamic zone re-balancing** (load imbalance from shock waves, plasticity).
 - ⬜ **Hilbert / Morton space-filling curves** for 3D zone traversal order.
 - ⬜ **Persistent kernels** with NCCL ring instead of MPI for very-low-latency clusters.
 - ⬜ **Long-range Coulomb** (PPPM) integration — out of metals scope but a future direction.
 - ⬜ **Biomolecular force fields** — far future.
+
+---
+
+## Phase Б — PBC outside force kernel + image counter (deferred backlog)
+
+**Status:** ⬜ Deferred. Trigger conditions defined below.
+
+**Why deferred:** Mixed mode after session 3B.7.fix runs at 91% of Phase 2
+FP32 baseline (6,927 ts/s on medium vs 7,638 baseline). The remaining 9% gap
+comes from PBC inside force kernel (~6 float branches per pair). Closing this
+gap requires moving PBC out of force kernel, which requires image counter
+infrastructure. This is significant architectural work for marginal performance
+benefit unless trajectory analysis features are added.
+
+**Trigger conditions** — at least one must be true to activate Phase Б:
+
+1. **Scientific need.** A simulation case requires unwrapped position output
+   for diffusion analysis, mean-square displacement calculation, radial
+   distribution functions over long runs, or any analysis where atom
+   trajectories must be tracked across periodic boundary crossings.
+
+2. **Profiling evidence.** New profiling shows that PBC float branches in
+   force kernel become a measurable bottleneck (>15% of force kernel time)
+   on some new system size or potential type.
+
+3. **Performance regression.** Some future change makes the remaining 9%
+   recovery suddenly important — for example, if a new optimization in
+   another part of the system makes force kernel the dominant bottleneck
+   even more than now, the 9% would become more impactful.
+
+**Approach when activated:**
+
+1. Add `image_t = Vec3I` per atom to system state.
+2. Implement wrap kernel after drift in integrator.
+3. Update neighbor list builder to assume positions are pre-wrapped.
+4. Remove PBC from force kernels.
+5. Update trajectory output to unwrap on demand: `x_real = x + image * box_size`.
+6. Update tests (PBC-aware comparison, image counter correctness, drift).
+7. Update ADR 0007 Force compute contract with PBC-out variant.
+
+**Estimated effort:** 2-3 hours of focused agent work, ~150-200 lines of new
+code across image counter struct, wrap kernel, integrator update, neighbor
+list update, and tests.
+
+**Estimated benefit:** ~7% additional performance (medium: 6,927 → ~7,400
+ts/s) plus correct unwrapped trajectory output for long-run analyses.
