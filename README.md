@@ -21,9 +21,71 @@ On modern GPU clusters where compute outpaces interconnect bandwidth, TD has arc
 
 ## Status
 
-🚧 **Pre-alpha — milestone M0.** Scaffolding and documentation phase. No working code yet.
+**Milestones M0–M7 complete.** Active development phase: single-GPU performance optimization.
 
-See [`docs/03-roadmap/milestones.md`](docs/03-roadmap/milestones.md) for the full plan.
+What works today:
+- **CPU reference MD** — standalone driver with Morse and EAM potentials, NVE integration, LAMMPS data file input.
+- **GPU single-rank** — `FastPipelineScheduler` with batched whole-system kernels. On RTX 5080 with FP32 Morse: **9,800 ts/s** on 4k atoms, **7,600 ts/s** on 32k atoms (**2.4x faster than LAMMPS-GPU** on medium systems).
+- **GPU multi-rank (scaffold)** — `DistributedPipelineScheduler` and `HybridPipelineScheduler` implement multi-rank TD and 2D time x space pipelines. Currently uses full replication (each rank holds all atoms) — correctness scaffold, not production distributed MD. See [ADR 0006](docs/06-decisions/0006-distributed-scaffold-honesty.md).
+- **NVT thermostat** — Nose-Hoover chain with MTTK integration in all schedulers.
+- **Adaptive dt** — `dt = min(dt_max, c2 * rc / v_max)`, opt-in.
+- **71 tests** (CPU + CUDA + MPI), LAMMPS A/B force validation.
+
+What's next: neighbor list optimization (Phase 3), EAM migration to batched scheduler (Phase 4), kernel fusion K>1. See [`docs/03-roadmap/milestones.md`](docs/03-roadmap/milestones.md).
+
+**Known limitations:**
+- Multi-rank paths use full replication, not ghost-atom exchange. Not suitable for distributed benchmarking.
+- FP32 test suite has tolerance issues (12 failures). FP64 is the validated path. Fix planned.
+- CI covers CPU-only builds. CUDA and MPI have compile-only CI checks. Full GPU CI requires self-hosted runner.
+
+---
+
+## Quickstart
+
+### CPU-only build (no GPU required)
+
+```bash
+git clone https://github.com/slava8519/tdmd_Claude.git
+cd tdmd
+./scripts/build.sh
+./scripts/run-tests.sh
+```
+
+### GPU build (requires CUDA 12.x)
+
+```bash
+cmake -B build -S . -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DTDMD_ENABLE_CUDA=ON \
+    -DTDMD_BUILD_TESTS=ON
+cmake --build build -j
+
+# Run tests
+ctest --test-dir build --output-on-failure
+```
+
+### Run a simulation (CPU standalone driver)
+
+```bash
+./build/tdmd_standalone --data tests/data/cu_fcc_256.data --nsteps 1000 --thermo 100
+```
+
+### Run benchmarks (GPU)
+
+```bash
+cmake -B build -S . -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DTDMD_ENABLE_CUDA=ON \
+    -DTDMD_BUILD_BENCHMARKS=ON
+cmake --build build -j
+
+./build/benchmarks/bench_pipeline_scheduler \
+    --scheduler fast_pipeline \
+    --data benchmarks/phase1_baseline/small.data \
+    --steps 1000 --warmup 100
+```
+
+See [`docs/04-development/build-and-run.md`](docs/04-development/build-and-run.md) for full build options, FP64/FP32 modes, and MPI builds.
 
 ---
 
@@ -46,20 +108,6 @@ See [`docs/03-roadmap/milestones.md`](docs/03-roadmap/milestones.md) for the ful
 **Before any task, read [`CLAUDE.md`](CLAUDE.md) at the repo root.** It contains the rules for working on this codebase: hard rules, code style, testing, git, autonomy boundaries.
 
 Role prompts (`prompts/roles/`) and workflow recipes (`prompts/workflows/`) overlay specific contexts on top of the base rules.
-
----
-
-## Quickstart (becomes real at M1)
-
-```bash
-git clone https://github.com/<you>/tdmd.git
-cd tdmd
-
-./scripts/build.sh           # builds the (currently empty) executable
-./scripts/run-tests.sh       # runs unit tests
-./scripts/run-verifylab.sh   # runs physics validation
-./scripts/status.sh          # build/test/verifylab health
-```
 
 ---
 
