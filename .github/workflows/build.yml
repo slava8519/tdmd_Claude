@@ -10,6 +10,7 @@ jobs:
   build-linux:
     runs-on: ubuntu-22.04
     strategy:
+      fail-fast: false
       matrix:
         build_type: [Debug, Release]
     steps:
