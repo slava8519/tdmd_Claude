@@ -24,7 +24,7 @@ __global__ void build_nlist_kernel(
     const Vec3* __restrict__ positions, i32 natoms,
     const i32* __restrict__ cell_atoms, const i32* __restrict__ cell_offsets,
     const i32* __restrict__ cell_counts, i32 ncx, i32 ncy, i32 ncz,
-    Vec3 box_lo, Vec3 box_size, bool pbc_x, bool pbc_y, bool pbc_z,
+    Vec3D box_lo, Vec3D box_size, bool pbc_x, bool pbc_y, bool pbc_z,
     real r_list_sq, i32* __restrict__ d_counts,
     i32* __restrict__ d_neighbors, const i32* __restrict__ d_offsets,
     i32 max_neighbors, i32* __restrict__ d_overflow) {
@@ -37,13 +37,16 @@ __global__ void build_nlist_kernel(
   pos_t piz = positions[i].z;
 
   // Cell index determination (can stay in real — no precision concern).
-  real inv_cx = static_cast<real>(ncx) / box_size.x;
-  real inv_cy = static_cast<real>(ncy) / box_size.y;
-  real inv_cz = static_cast<real>(ncz) / box_size.z;
+  real inv_cx = static_cast<real>(ncx) / static_cast<real>(box_size.x);
+  real inv_cy = static_cast<real>(ncy) / static_cast<real>(box_size.y);
+  real inv_cz = static_cast<real>(ncz) / static_cast<real>(box_size.z);
 
-  auto cix = static_cast<i32>((positions[i].x - box_lo.x) * inv_cx);
-  auto ciy = static_cast<i32>((positions[i].y - box_lo.y) * inv_cy);
-  auto ciz = static_cast<i32>((positions[i].z - box_lo.z) * inv_cz);
+  auto cix = static_cast<i32>((static_cast<real>(positions[i].x) -
+                               static_cast<real>(box_lo.x)) * inv_cx);
+  auto ciy = static_cast<i32>((static_cast<real>(positions[i].y) -
+                               static_cast<real>(box_lo.y)) * inv_cy);
+  auto ciz = static_cast<i32>((static_cast<real>(positions[i].z) -
+                               static_cast<real>(box_lo.z)) * inv_cz);
   if (cix >= ncx) cix = ncx - 1;
   if (ciy >= ncy) ciy = ncy - 1;
   if (ciz >= ncz) ciz = ncz - 1;
@@ -155,7 +158,7 @@ void DeviceNeighborList::build(const Vec3* d_positions, i64 natoms,
   counts_.resize(un);
   counts_.zero();
 
-  Vec3 box_size = box.size();
+  Vec3D box_size = box.size();
 
   constexpr int kBlock = 256;
   int grid = (static_cast<int>(natoms) + kBlock - 1) / kBlock;

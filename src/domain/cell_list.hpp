@@ -56,10 +56,15 @@ class CellList {
   }
 
   /// Cell index for a given position.
-  [[nodiscard]] i32 cell_of(Vec3 pos, Vec3 lo) const noexcept {
-    auto ix = static_cast<i32>((pos.x - lo.x) / cell_size_.x);
-    auto iy = static_cast<i32>((pos.y - lo.y) / cell_size_.y);
-    auto iz = static_cast<i32>((pos.z - lo.z) / cell_size_.z);
+  /// `lo` is Vec3D (geometry stored in double per ADR 0007); the subtraction
+  /// promotes to double then casts to i32.
+  [[nodiscard]] i32 cell_of(Vec3 pos, Vec3D lo) const noexcept {
+    auto ix = static_cast<i32>((static_cast<double>(pos.x) - lo.x) /
+                               static_cast<double>(cell_size_.x));
+    auto iy = static_cast<i32>((static_cast<double>(pos.y) - lo.y) /
+                               static_cast<double>(cell_size_.y));
+    auto iz = static_cast<i32>((static_cast<double>(pos.z) - lo.z) /
+                               static_cast<double>(cell_size_.z));
     // Clamp to valid range (handles edge cases at boundary).
     if (ix >= ncx_) ix = ncx_ - 1;
     if (iy >= ncy_) iy = ncy_ - 1;

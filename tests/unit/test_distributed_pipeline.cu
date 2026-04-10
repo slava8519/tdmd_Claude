@@ -58,7 +58,7 @@ static void compare_states(const SystemState& s1, const SystemState& s2,
   auto n = static_cast<std::size_t>(s1.natoms);
   ASSERT_EQ(s1.natoms, s2.natoms);
 
-  Vec3 box_size = s1.box.size();
+  Vec3D box_size = s1.box.size();
 
   // Build ID→index maps.
   std::vector<std::size_t> map1(n), map2(n);

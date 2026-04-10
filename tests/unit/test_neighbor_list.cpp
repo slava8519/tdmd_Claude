@@ -57,7 +57,7 @@ TEST(NeighborList, NoLossNoGain) {
   nlist.build(pos.data(), natoms, box, real{5.5}, real{0.5});
 
   const real r_list_sq = real{6.0} * real{6.0};  // (5.5 + 0.5)^2
-  const Vec3 box_size = box.size();
+  const Vec3D box_size = box.size();
 
   // Verify: every pair in list is within r_list, and no missing pair.
   // Collect all pairs from list.

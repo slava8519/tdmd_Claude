@@ -17,7 +17,7 @@ void NeighborList::build(const Vec3* positions, i64 natoms, const Box& box,
   r_skin_ = r_skin;
   const real r_list = r_cut + r_skin;
   const real r_list_sq = r_list * r_list;
-  const Vec3 box_size = box.size();
+  const Vec3D box_size = box.size();
 
   // Build cell list.
   cell_list_.build(positions, natoms, box, r_list);

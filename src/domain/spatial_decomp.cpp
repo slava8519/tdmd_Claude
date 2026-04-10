@@ -23,11 +23,11 @@ void SpatialDecomp::build(const Box& box, i32 n_spatial, i32 my_spatial,
   my_spatial_ = my_spatial;
   r_ghost_ = r_ghost;
 
-  Vec3 box_size = box.size();
-  slab_width_ = box_size.y / static_cast<real>(n_spatial);
+  Vec3D box_size = box.size();
+  slab_width_ = static_cast<real>(box_size.y / n_spatial);
 
   // My Y-subdomain boundaries.
-  y_lo_ = box.lo.y + static_cast<real>(my_spatial) * slab_width_;
+  y_lo_ = static_cast<real>(box.lo.y) + static_cast<real>(my_spatial) * slab_width_;
   y_hi_ = y_lo_ + slab_width_;
 
   // PBC neighbors in ring topology.
@@ -109,7 +109,7 @@ void SpatialDecomp::identify_send_ghosts(const Vec3* positions, i32 n_owned,
   send_to_prev.clear();
   send_to_next.clear();
 
-  real box_ly = box_.hi.y - box_.lo.y;
+  real box_ly = static_cast<real>(box_.hi.y - box_.lo.y);
 
   for (i32 i = 0; i < n_owned; ++i) {
     real y = positions[static_cast<std::size_t>(i)].y;

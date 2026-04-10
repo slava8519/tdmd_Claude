@@ -39,7 +39,7 @@ __global__ void half_kick_kernel(Vec3* __restrict__ velocities,
 
 __global__ void drift_kernel(Vec3* __restrict__ positions,
                              const Vec3* __restrict__ velocities, i32 natoms,
-                             real dt, Vec3 box_lo, Vec3 box_size, bool pbc_x,
+                             real dt, Vec3D box_lo, Vec3D box_size, bool pbc_x,
                              bool pbc_y, bool pbc_z) {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i >= natoms) return;
@@ -53,25 +53,18 @@ __global__ void drift_kernel(Vec3* __restrict__ positions,
   double pz = static_cast<double>(positions[i].z) +
               d_dt * static_cast<double>(velocities[i].z);
 
-  // Wrap into box (in double for determinism).
-  double blx = static_cast<double>(box_lo.x);
-  double bly = static_cast<double>(box_lo.y);
-  double blz = static_cast<double>(box_lo.z);
-  double bsx = static_cast<double>(box_size.x);
-  double bsy = static_cast<double>(box_size.y);
-  double bsz = static_cast<double>(box_size.z);
-
+  // Wrap into box (Box is already double per Stage 1).
   if (pbc_x) {
-    if (px < blx) px += bsx;
-    else if (px >= blx + bsx) px -= bsx;
+    if (px < box_lo.x) px += box_size.x;
+    else if (px >= box_lo.x + box_size.x) px -= box_size.x;
   }
   if (pbc_y) {
-    if (py < bly) py += bsy;
-    else if (py >= bly + bsy) py -= bsy;
+    if (py < box_lo.y) py += box_size.y;
+    else if (py >= box_lo.y + box_size.y) py -= box_size.y;
   }
   if (pbc_z) {
-    if (pz < blz) pz += bsz;
-    else if (pz >= blz + bsz) pz -= bsz;
+    if (pz < box_lo.z) pz += box_size.z;
+    else if (pz >= box_lo.z + box_size.z) pz -= box_size.z;
   }
 
   positions[i].x = static_cast<real>(px);
@@ -103,7 +96,7 @@ void device_half_kick(Vec3* d_velocities, const Vec3* d_forces,
 void device_drift(Vec3* d_positions, const Vec3* d_velocities, i32 natoms,
                   real dt, const Box& box, cudaStream_t stream) {
   if (natoms == 0) return;
-  Vec3 box_size = box.size();
+  Vec3D box_size = box.size();
   constexpr int kBlock = 256;
   int grid = (natoms + kBlock - 1) / kBlock;
   drift_kernel<<<grid, kBlock, 0, stream>>>(d_positions, d_velocities, natoms,

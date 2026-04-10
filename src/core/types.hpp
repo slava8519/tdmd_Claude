@@ -51,9 +51,10 @@ using Vec3F = Vec3T<float>;
 using Vec3 = Vec3T<real>;
 
 // ---- axis-aligned bounding box ----
+// Geometry in double regardless of build mode (ADR 0007).
 struct Aabb {
-  Vec3 lo;
-  Vec3 hi;
+  Vec3D lo;
+  Vec3D hi;
 };
 
 // Layer 2: role aliases (semantic naming).

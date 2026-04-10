@@ -41,7 +41,7 @@ __global__ void half_kick_zone_kernel(Vec3* __restrict__ velocities,
 __global__ void drift_zone_kernel(Vec3* __restrict__ positions,
                                   const Vec3* __restrict__ velocities,
                                   i32 first_atom, i32 atom_count, real dt,
-                                  Vec3 box_lo, Vec3 box_size, bool pbc_x,
+                                  Vec3D box_lo, Vec3D box_size, bool pbc_x,
                                   bool pbc_y, bool pbc_z) {
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= atom_count) return;
@@ -56,24 +56,18 @@ __global__ void drift_zone_kernel(Vec3* __restrict__ positions,
   double pz = static_cast<double>(positions[i].z) +
               d_dt * static_cast<double>(velocities[i].z);
 
-  double blx = static_cast<double>(box_lo.x);
-  double bly = static_cast<double>(box_lo.y);
-  double blz = static_cast<double>(box_lo.z);
-  double bsx = static_cast<double>(box_size.x);
-  double bsy = static_cast<double>(box_size.y);
-  double bsz = static_cast<double>(box_size.z);
-
+  // Wrap into box (Box is already double per Stage 1).
   if (pbc_x) {
-    if (px < blx) px += bsx;
-    if (px >= blx + bsx) px -= bsx;
+    if (px < box_lo.x) px += box_size.x;
+    if (px >= box_lo.x + box_size.x) px -= box_size.x;
   }
   if (pbc_y) {
-    if (py < bly) py += bsy;
-    if (py >= bly + bsy) py -= bsy;
+    if (py < box_lo.y) py += box_size.y;
+    if (py >= box_lo.y + box_size.y) py -= box_size.y;
   }
   if (pbc_z) {
-    if (pz < blz) pz += bsz;
-    if (pz >= blz + bsz) pz -= bsz;
+    if (pz < box_lo.z) pz += box_size.z;
+    if (pz >= box_lo.z + box_size.z) pz -= box_size.z;
   }
 
   positions[i].x = static_cast<real>(px);
@@ -111,7 +105,7 @@ void device_drift_zone(Vec3* d_positions, const Vec3* d_velocities,
                        i32 first_atom, i32 atom_count, real dt,
                        const Box& box, cudaStream_t stream) {
   if (atom_count == 0) return;
-  Vec3 box_size = box.size();
+  Vec3D box_size = box.size();
   constexpr int kBlock = 256;
   int grid = (atom_count + kBlock - 1) / kBlock;
   drift_zone_kernel<<<grid, kBlock, 0, stream>>>(

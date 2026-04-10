@@ -11,7 +11,7 @@ real compute_pair_forces(SystemState& state,
                          const neighbors::NeighborList& nlist,
                          const IPairStyle& pair) {
   const i64 natoms = state.natoms;
-  const Vec3 box_size = state.box.size();
+  const Vec3D box_size = state.box.size();
   const auto& periodic = state.box.periodic;
 
   // Zero forces.

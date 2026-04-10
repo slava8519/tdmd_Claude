@@ -218,7 +218,7 @@ TEST(HybridPipeline, DeterministicMatchesM5) {
       map_m6[static_cast<std::size_t>(all_ids[i] - 1)] = i;
     }
 
-    Vec3 box_size = state_ref.box.size();
+    Vec3D box_size = state_ref.box.size();
     auto pbc_diff = [](real a, real b, real box_len) {
       real d = std::abs(a - b);
       if (d > box_len * real{0.5}) d = box_len - d;
@@ -230,9 +230,9 @@ TEST(HybridPipeline, DeterministicMatchesM5) {
       auto i_ref = map_ref[id];
       auto i_m6 = map_m6[id];
       // PBC-aware position comparison.
-      real dp = std::max({pbc_diff(state_ref.positions[i_ref].x, all_pos[i_m6].x, box_size.x),
-                          pbc_diff(state_ref.positions[i_ref].y, all_pos[i_m6].y, box_size.y),
-                          pbc_diff(state_ref.positions[i_ref].z, all_pos[i_m6].z, box_size.z)});
+      real dp = std::max({pbc_diff(state_ref.positions[i_ref].x, all_pos[i_m6].x, static_cast<real>(box_size.x)),
+                          pbc_diff(state_ref.positions[i_ref].y, all_pos[i_m6].y, static_cast<real>(box_size.y)),
+                          pbc_diff(state_ref.positions[i_ref].z, all_pos[i_m6].z, static_cast<real>(box_size.z))});
       max_pos_diff = std::max(max_pos_diff, dp);
       real dv = std::max({std::abs(state_ref.velocities[i_ref].x - all_vel[i_m6].x),
                           std::abs(state_ref.velocities[i_ref].y - all_vel[i_m6].y),

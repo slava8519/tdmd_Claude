@@ -9,14 +9,19 @@
 namespace tdmd {
 
 /// Orthorhombic simulation box. Triclinic comes later (post-M7).
+///
+/// Geometry is stored in double precision regardless of build mode
+/// (ADR 0007). Box dimensions are constants set at simulation start
+/// — no precision benefit to float storage, and double avoids
+/// precision-mode-dependent geometry bugs.
 struct Box {
-  Vec3 lo{0, 0, 0};
-  Vec3 hi{0, 0, 0};
+  Vec3D lo{0, 0, 0};
+  Vec3D hi{0, 0, 0};
   std::array<bool, 3> periodic{true, true, true};
 
   /// Box edge length along each axis.
-  Vec3 size() const noexcept {
-    return Vec3{hi.x - lo.x, hi.y - lo.y, hi.z - lo.z};
+  Vec3D size() const noexcept {
+    return Vec3D{hi.x - lo.x, hi.y - lo.y, hi.z - lo.z};
   }
 };
 

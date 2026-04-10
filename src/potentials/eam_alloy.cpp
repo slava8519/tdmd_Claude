@@ -182,7 +182,7 @@ void EamAlloy::read_setfl(const std::string& filename) {
 real EamAlloy::compute_forces(SystemState& state,
                               const neighbors::NeighborList& nlist) const {
   const i64 natoms = state.natoms;
-  const Vec3 box_size = state.box.size();
+  const Vec3D box_size = state.box.size();
   const auto& periodic = state.box.periodic;
   const real rc_sq = cutoff_ * cutoff_;
 

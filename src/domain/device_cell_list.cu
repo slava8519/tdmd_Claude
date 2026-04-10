@@ -18,15 +18,18 @@ namespace {
 __global__ void assign_cells_kernel(const Vec3* __restrict__ positions,
                                     i32* __restrict__ atom_cells,
                                     i32* __restrict__ cell_counts, i32 natoms,
-                                    Vec3 lo, Vec3 inv_cell_size, i32 ncx,
+                                    Vec3D lo, Vec3 inv_cell_size, i32 ncx,
                                     i32 ncy, i32 ncz) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx >= natoms) return;
 
   Vec3 p = positions[idx];
-  auto ix = static_cast<i32>((p.x - lo.x) * inv_cell_size.x);
-  auto iy = static_cast<i32>((p.y - lo.y) * inv_cell_size.y);
-  auto iz = static_cast<i32>((p.z - lo.z) * inv_cell_size.z);
+  auto ix = static_cast<i32>((static_cast<real>(p.x) -
+                              static_cast<real>(lo.x)) * inv_cell_size.x);
+  auto iy = static_cast<i32>((static_cast<real>(p.y) -
+                              static_cast<real>(lo.y)) * inv_cell_size.y);
+  auto iz = static_cast<i32>((static_cast<real>(p.z) -
+                              static_cast<real>(lo.z)) * inv_cell_size.z);
 
   // Clamp to valid range.
   if (ix >= ncx) ix = ncx - 1;
@@ -62,16 +65,16 @@ void DeviceCellList::build(const Vec3* d_positions, i64 natoms, const Box& box,
   TDMD_ASSERT(natoms >= 0, "natoms must be non-negative");
   if (natoms == 0) return;
 
-  const Vec3 box_size = box.size();
+  const Vec3D box_size = box.size();
 
   // Determine grid dimensions (same logic as CPU).
   ncx_ = std::max(3, static_cast<i32>(std::floor(box_size.x / r_list)));
   ncy_ = std::max(3, static_cast<i32>(std::floor(box_size.y / r_list)));
   ncz_ = std::max(3, static_cast<i32>(std::floor(box_size.z / r_list)));
 
-  cell_size_ = {box_size.x / static_cast<real>(ncx_),
-                box_size.y / static_cast<real>(ncy_),
-                box_size.z / static_cast<real>(ncz_)};
+  cell_size_ = {static_cast<real>(box_size.x / static_cast<double>(ncx_)),
+                static_cast<real>(box_size.y / static_cast<double>(ncy_)),
+                static_cast<real>(box_size.z / static_cast<double>(ncz_))};
 
   Vec3 inv_cell_size = {real{1} / cell_size_.x, real{1} / cell_size_.y,
                         real{1} / cell_size_.z};

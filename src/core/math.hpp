@@ -65,52 +65,67 @@ inline T length(Vec3T<T> v) noexcept {
 }
 
 // ---- Periodic boundary conditions ----
+//
+// minimum_image and wrap_position take two template types:
+//   TP — type of the position/delta (build-mode precision in CPU code)
+//   TB — type of the box (always double after Stage 1: Box stores Vec3D)
+// Box values are cast to TP for arithmetic so the result type matches
+// the input position/delta type.
 
 /// Apply minimum-image convention: adjust delta so |delta[d]| <= half box size.
 /// `box_size` = hi - lo for each dimension.
 /// `periodic` = per-axis periodicity flag.
-template<class T>
-inline Vec3T<T> minimum_image(Vec3T<T> delta, Vec3T<T> box_size,
-                              const std::array<bool, 3>& periodic) noexcept {
+template<class TP, class TB>
+inline Vec3T<TP> minimum_image(Vec3T<TP> delta, Vec3T<TB> box_size,
+                               const std::array<bool, 3>& periodic) noexcept {
   if (periodic[0]) {
-    if (delta.x > T{0.5} * box_size.x)
-      delta.x -= box_size.x;
-    else if (delta.x < T{-0.5} * box_size.x)
-      delta.x += box_size.x;
+    const TP bs = static_cast<TP>(box_size.x);
+    if (delta.x > TP{0.5} * bs)
+      delta.x -= bs;
+    else if (delta.x < TP{-0.5} * bs)
+      delta.x += bs;
   }
   if (periodic[1]) {
-    if (delta.y > T{0.5} * box_size.y)
-      delta.y -= box_size.y;
-    else if (delta.y < T{-0.5} * box_size.y)
-      delta.y += box_size.y;
+    const TP bs = static_cast<TP>(box_size.y);
+    if (delta.y > TP{0.5} * bs)
+      delta.y -= bs;
+    else if (delta.y < TP{-0.5} * bs)
+      delta.y += bs;
   }
   if (periodic[2]) {
-    if (delta.z > T{0.5} * box_size.z)
-      delta.z -= box_size.z;
-    else if (delta.z < T{-0.5} * box_size.z)
-      delta.z += box_size.z;
+    const TP bs = static_cast<TP>(box_size.z);
+    if (delta.z > TP{0.5} * bs)
+      delta.z -= bs;
+    else if (delta.z < TP{-0.5} * bs)
+      delta.z += bs;
   }
   return delta;
 }
 
 /// Wrap position into the box [lo, hi).
-template<class T>
-inline Vec3T<T> wrap_position(Vec3T<T> pos, Vec3T<T> lo, Vec3T<T> box_size,
-                              const std::array<bool, 3>& periodic) noexcept {
+template<class TP, class TB>
+inline Vec3T<TP> wrap_position(Vec3T<TP> pos, Vec3T<TB> lo, Vec3T<TB> box_size,
+                               const std::array<bool, 3>& periodic) noexcept {
   if (periodic[0]) {
-    T rel = pos.x - lo.x;
-    rel -= std::floor(rel / box_size.x) * box_size.x;
-    pos.x = lo.x + rel;
+    const TP lox = static_cast<TP>(lo.x);
+    const TP bsx = static_cast<TP>(box_size.x);
+    TP rel = pos.x - lox;
+    rel -= std::floor(rel / bsx) * bsx;
+    pos.x = lox + rel;
   }
   if (periodic[1]) {
-    T rel = pos.y - lo.y;
-    rel -= std::floor(rel / box_size.y) * box_size.y;
-    pos.y = lo.y + rel;
+    const TP loy = static_cast<TP>(lo.y);
+    const TP bsy = static_cast<TP>(box_size.y);
+    TP rel = pos.y - loy;
+    rel -= std::floor(rel / bsy) * bsy;
+    pos.y = loy + rel;
   }
   if (periodic[2]) {
-    T rel = pos.z - lo.z;
-    rel -= std::floor(rel / box_size.z) * box_size.z;
-    pos.z = lo.z + rel;
+    const TP loz = static_cast<TP>(lo.z);
+    const TP bsz = static_cast<TP>(box_size.z);
+    TP rel = pos.z - loz;
+    rel -= std::floor(rel / bsz) * bsz;
+    pos.z = loz + rel;
   }
   return pos;
 }

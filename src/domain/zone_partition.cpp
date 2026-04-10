@@ -13,8 +13,8 @@
 namespace tdmd::domain {
 
 void ZonePartition::build(const Box& box, real r_cut, i32 n_zones) {
-  Vec3 box_size = box.size();
-  box_lo_x_ = box.lo.x;
+  Vec3D box_size = box.size();
+  box_lo_x_ = static_cast<real>(box.lo.x);
 
   if (n_zones <= 0) {
     n_zones = std::max(3, static_cast<i32>(std::floor(box_size.x / r_cut)));
@@ -22,7 +22,7 @@ void ZonePartition::build(const Box& box, real r_cut, i32 n_zones) {
   TDMD_ASSERT(n_zones >= 3, "need at least 3 zones for PBC");
 
   n_zones_ = n_zones;
-  zone_width_ = box_size.x / static_cast<real>(n_zones);
+  zone_width_ = static_cast<real>(box_size.x / n_zones);
   // zone_width_ < r_cut is allowed: build_zone_neighbors handles larger spans.
 
   zones_.resize(static_cast<std::size_t>(n_zones));
@@ -30,9 +30,9 @@ void ZonePartition::build(const Box& box, real r_cut, i32 n_zones) {
     auto si = static_cast<std::size_t>(i);
     zones_[si].id = i;
     zones_[si].lattice_index = {i, 0, 0};
-    zones_[si].bbox.lo = {box.lo.x + static_cast<real>(i) * zone_width_,
+    zones_[si].bbox.lo = {box.lo.x + static_cast<double>(i) * (box_size.x / n_zones),
                           box.lo.y, box.lo.z};
-    zones_[si].bbox.hi = {box.lo.x + static_cast<real>(i + 1) * zone_width_,
+    zones_[si].bbox.hi = {box.lo.x + static_cast<double>(i + 1) * (box_size.x / n_zones),
                           box.hi.y, box.hi.z};
     zones_[si].state = scheduler::ZoneState::Free;
     zones_[si].time_step = 0;

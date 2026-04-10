@@ -15,7 +15,7 @@ __global__ void morse_force_zone_kernel(
     const Vec3* __restrict__ positions, Vec3* __restrict__ forces,
     const i32* __restrict__ neighbors, const i32* __restrict__ offsets,
     const i32* __restrict__ counts, i32 first_atom, i32 atom_count,
-    Vec3 box_lo, Vec3 box_size, bool pbc_x, bool pbc_y, bool pbc_z,
+    Vec3D box_lo, Vec3D box_size, bool pbc_x, bool pbc_y, bool pbc_z,
     MorseParams params, accum_t* __restrict__ d_energy) {
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= atom_count) return;
@@ -101,7 +101,7 @@ void compute_morse_gpu_zone(const Vec3* d_positions, Vec3* d_forces,
                             cudaStream_t stream) {
   if (atom_count == 0) return;
 
-  Vec3 box_size = box.size();
+  Vec3D box_size = box.size();
   constexpr int kBlock = 256;
   int grid = (atom_count + kBlock - 1) / kBlock;
 

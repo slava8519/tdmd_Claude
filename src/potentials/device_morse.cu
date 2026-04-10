@@ -16,7 +16,7 @@ __global__ void morse_force_kernel(const Vec3* __restrict__ positions,
                                    const i32* __restrict__ neighbors,
                                    const i32* __restrict__ offsets,
                                    const i32* __restrict__ counts,
-                                   i32 natoms, Vec3 box_lo, Vec3 box_size,
+                                   i32 natoms, Vec3D box_lo, Vec3D box_size,
                                    bool pbc_x, bool pbc_y, bool pbc_z,
                                    MorseParams params, accum_t* __restrict__ d_energy) {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -106,7 +106,7 @@ void compute_morse_gpu(const Vec3* d_positions, Vec3* d_forces,
                        cudaStream_t stream) {
   if (natoms == 0) return;
 
-  Vec3 box_size = box.size();
+  Vec3D box_size = box.size();
   constexpr int kBlock = 256;
   int grid = (natoms + kBlock - 1) / kBlock;
 

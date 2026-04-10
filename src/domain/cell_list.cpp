@@ -15,16 +15,16 @@ void CellList::build(const Vec3* positions, i64 natoms, const Box& box,
   TDMD_ASSERT(r_list > real{0}, "r_list must be positive");
   TDMD_ASSERT(natoms >= 0, "natoms must be non-negative");
 
-  const Vec3 box_size = box.size();
+  const Vec3D box_size = box.size();
 
   // Determine number of cells: at least 3 per axis for PBC to work correctly.
   ncx_ = std::max(3, static_cast<i32>(std::floor(box_size.x / r_list)));
   ncy_ = std::max(3, static_cast<i32>(std::floor(box_size.y / r_list)));
   ncz_ = std::max(3, static_cast<i32>(std::floor(box_size.z / r_list)));
 
-  cell_size_ = {box_size.x / static_cast<real>(ncx_),
-                box_size.y / static_cast<real>(ncy_),
-                box_size.z / static_cast<real>(ncz_)};
+  cell_size_ = {static_cast<real>(box_size.x / ncx_),
+                static_cast<real>(box_size.y / ncy_),
+                static_cast<real>(box_size.z / ncz_)};
 
   const i32 ncells = ncx_ * ncy_ * ncz_;
 

@@ -53,7 +53,7 @@ __device__ real spline_eval_deriv(const DeviceSpline& sp, const real* coeff,
 __global__ void eam_density_kernel(
     const Vec3* __restrict__ positions, const i32* __restrict__ types,
     const i32* __restrict__ neighbors, const i32* __restrict__ offsets,
-    const i32* __restrict__ counts, i32 natoms, Vec3 box_lo, Vec3 box_size,
+    const i32* __restrict__ counts, i32 natoms, Vec3D box_lo, Vec3D box_size,
     bool pbc_x, bool pbc_y, bool pbc_z, real rc_sq,
     const DeviceSpline* __restrict__ density_meta,
     const real* __restrict__ coeff, accum_t* __restrict__ rho) {
@@ -149,7 +149,7 @@ __global__ void eam_force_kernel(
     const Vec3* __restrict__ positions, Vec3* __restrict__ forces,
     const i32* __restrict__ types, const i32* __restrict__ neighbors,
     const i32* __restrict__ offsets, const i32* __restrict__ counts,
-    i32 natoms, i32 ntypes, Vec3 box_lo, Vec3 box_size, bool pbc_x,
+    i32 natoms, i32 ntypes, Vec3D box_lo, Vec3D box_size, bool pbc_x,
     bool pbc_y, bool pbc_z, real rc_sq,
     const DeviceSpline* __restrict__ density_meta,
     const DeviceSpline* __restrict__ phi_meta,
@@ -306,7 +306,7 @@ void DeviceEam::compute(const Vec3* d_positions, Vec3* d_forces,
                         i32 natoms, const Box& box, accum_t* d_energy) {
   if (natoms == 0) return;
 
-  Vec3 box_size = box.size();
+  Vec3D box_size = box.size();
   real rc_sq = cutoff_ * cutoff_;
 
   auto un = static_cast<std::size_t>(natoms);

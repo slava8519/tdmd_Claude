@@ -24,7 +24,7 @@ void VelocityVerlet::half_kick(SystemState& state) const {
 }
 
 void VelocityVerlet::drift(SystemState& state) const {
-  const Vec3 box_size = state.box.size();
+  const Vec3D box_size = state.box.size();
 
   for (i64 i = 0; i < state.natoms; ++i) {
     auto si = static_cast<std::size_t>(i);
