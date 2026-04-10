@@ -293,6 +293,108 @@ TEST(EamAlloy, SameMappingIsDeterministic) {
   std::filesystem::remove(path);
 }
 
+// VL-11: Embedding density consistency (neighbor list vs brute force).
+//
+// From Comprehensive Test Suite Design doc (test E2): "compute per-atom
+// density contributions two ways (direct sum and neighbor list) and compare".
+// The point is NOT to test the spline (FccBulkEnergy covers that). It is to
+// test **iteration coverage**: does the neighbor list visit every (i, j) pair
+// within cutoff that the density function needs? A missing entry — because of
+// a stale half-list, a wrong skin, or a cell-boundary off-by-one — would
+// silently drop density contributions and the many-body force path would
+// return subtly wrong embedding terms.
+//
+// This is EAM-specific because the density is accumulated once per neighbor
+// pair; for pair-additive potentials (Morse), a missing neighbor is the same
+// as a wrong PE which the existing run0-force-match test would catch. For
+// EAM, a missing neighbor on atom i's density list also changes atom j's
+// force through the embedding derivative fp_j — the error cascades in ways
+// that are hard to attribute without this direct check.
+TEST(EamAlloy, EmbeddingDensityMatchesBruteForce) {
+  EamAlloy eam;
+  eam.read_setfl(data_dir() + "/Cu_mishin1.eam.alloy");
+
+  // 256-atom Cu FCC — same input VL-2 grades against.
+  auto state = io::read_lammps_data(data_dir() + "/cu_fcc_256.data");
+  const real rc = eam.cutoff();
+  const real rc_sq = rc * rc;
+
+  neighbors::NeighborList nlist;
+  nlist.build(state.positions.data(), state.natoms, state.box, rc, real{0.5});
+
+  // --- Path A: rho_i via neighbor list (what the engine does).
+  std::vector<double> rho_nlist(static_cast<std::size_t>(state.natoms), 0.0);
+  const auto& density_tables = eam.density();
+  const Vec3D box_size = state.box.size();
+  for (i64 i = 0; i < state.natoms; ++i) {
+    const i32 cnt = nlist.count(i);
+    const i32* nbrs = nlist.neighbors_of(i);
+    for (i32 k = 0; k < cnt; ++k) {
+      const i32 j = nbrs[k];
+      PositionVec d = state.positions[static_cast<std::size_t>(j)] -
+                      state.positions[static_cast<std::size_t>(i)];
+      d = minimum_image(d, box_size, state.box.periodic);
+      const double r2 = length_sq(d);
+      if (r2 >= static_cast<double>(rc_sq)) continue;
+      const real r = static_cast<real>(std::sqrt(r2));
+
+      // Half-list: this pair contributes to both atoms' densities.
+      const i32 ti = state.types[static_cast<std::size_t>(i)] - 1;
+      const i32 tj = state.types[static_cast<std::size_t>(j)] - 1;
+      rho_nlist[static_cast<std::size_t>(i)] += static_cast<double>(
+          density_tables[static_cast<std::size_t>(tj)].eval(r));
+      rho_nlist[static_cast<std::size_t>(j)] += static_cast<double>(
+          density_tables[static_cast<std::size_t>(ti)].eval(r));
+    }
+  }
+
+  // --- Path B: rho_i via brute force O(N^2) over all (i, j) within cutoff.
+  std::vector<double> rho_brute(static_cast<std::size_t>(state.natoms), 0.0);
+  for (i64 i = 0; i < state.natoms; ++i) {
+    for (i64 j = 0; j < state.natoms; ++j) {
+      if (i == j) continue;
+      PositionVec d = state.positions[static_cast<std::size_t>(j)] -
+                      state.positions[static_cast<std::size_t>(i)];
+      d = minimum_image(d, box_size, state.box.periodic);
+      const double r2 = length_sq(d);
+      if (r2 >= static_cast<double>(rc_sq)) continue;
+      const real r = static_cast<real>(std::sqrt(r2));
+      const i32 tj = state.types[static_cast<std::size_t>(j)] - 1;
+      rho_brute[static_cast<std::size_t>(i)] += static_cast<double>(
+          density_tables[static_cast<std::size_t>(tj)].eval(r));
+    }
+  }
+
+  // Per-atom rho must match within spline-eval round-off.
+  double max_abs_diff = 0.0;
+  double max_rel_diff = 0.0;
+  for (std::size_t i = 0; i < rho_nlist.size(); ++i) {
+    const double abs_diff = std::abs(rho_nlist[i] - rho_brute[i]);
+    max_abs_diff = std::max(max_abs_diff, abs_diff);
+    if (std::abs(rho_brute[i]) > 1e-12) {
+      max_rel_diff = std::max(max_rel_diff, abs_diff / std::abs(rho_brute[i]));
+    }
+  }
+
+  // Tolerance: per-atom rho is ~1 for bulk Cu FCC (dimensionless density
+  // units in this setfl). Non-associative float sums of ~12 neighbor
+  // contributions, each of order 0.1, produce at most ~1e-13 abs error
+  // in double precision. Be generous — 1e-10 absolute is well above noise.
+  EXPECT_LT(max_abs_diff, 1e-10)
+      << "neighbor-list and brute-force density disagree: max abs diff = "
+      << max_abs_diff;
+  EXPECT_LT(max_rel_diff, 1e-10);
+
+  // Also: every atom in bulk FCC must have non-trivial density. If rho is
+  // zero anywhere, either the neighbor list dropped every neighbor or the
+  // test input was broken.
+  for (std::size_t i = 0; i < rho_nlist.size(); ++i) {
+    EXPECT_GT(rho_nlist[i], 0.01)
+        << "atom " << i << " has near-zero density (" << rho_nlist[i]
+        << ") — neighbor list may be empty or spline broken";
+  }
+}
+
 TEST(EamAlloy, FccBulkEnergy) {
   // 256-atom Cu FCC at a=3.615. Cohesive energy should be ~-3.54 eV/atom.
   EamAlloy eam;
