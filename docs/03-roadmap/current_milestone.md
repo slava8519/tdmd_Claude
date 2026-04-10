@@ -134,8 +134,20 @@ suite that gates every PR. VL-1 and VL-2 done; VL-3, VL-4, VL-5 remain.
   epsilon — TDMD and LAMMPS agree to zero when both run in double);
   mixed Morse ~5.0e-6, mixed EAM ~2.7e-6. All 2 VerifyLab cases PASS
   in both modes; unit tests 73/73 green in both builds.
-- **VL-3 ⏳ — `nve-drift` long run.** ~4k-atom Cu FCC, 50k NVE steps,
-  assert `|dE/E|` bound. Slow suite (nightly).
+- **VL-3 ✅ — `nve-drift` long run.** 4000-atom Cu FCC, EAM/alloy,
+  20 ps NVE (20 000 steps). First case that integrates equations of
+  motion rather than just grading step-0 forces. `generate_input.py`
+  produces a committed data file with deterministic Maxwell-Boltzmann
+  velocities (seed 42) at T=100 K; numpy-free so it runs from a stock
+  Python 3. `check.py` parses every thermo sample, drops the first
+  25 % as equilibration transient (KE/PE redistribute on a cold FCC
+  lattice; that's not drift), then measures drift as
+  `|slope(linreg(TE vs t))| / |mean(TE)|`. Marked `slow = true` (runs
+  ~3 min per mode on the CPU-only driver) so it won't gate PRs — that
+  wiring happens in VL-5. Observed on 2026-04-10: fp64 drift ~5.7e-10
+  /ps (1000× under 5e-7 threshold), mixed drift ~3.0e-8 /ps (1700×
+  under 5e-5 threshold). Float32 force noise mostly cancels on long
+  time-averaging, so drift stays tiny even in mixed mode.
 - **VL-4 ⏳ — cross-precision A/B.** Same input run in both
   `build-mixed/` and `build-fp64/`, trajectories compared against each
   other (not against LAMMPS). Answers "how fast do mixed and fp64

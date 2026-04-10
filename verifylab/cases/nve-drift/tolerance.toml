@@ -1,0 +1,25 @@
+# Tolerances for the nve-drift VerifyLab case.
+# Loosening any of these requires an ADR.
+#
+# The metric is relative drift per picosecond:
+#   rel_drift = |slope_linreg(TE vs t)| / |mean(TE)|
+#
+# measured on the steady-state portion of the trajectory (first 25% of
+# samples are discarded as equilibration transient).
+#
+# Observed on 2026-04-10 (4000 Cu atoms, EAM/alloy, T=100 K, 20 ps run):
+#   fp64  : ~1e-8 /ps (essentially machine-zero slope under noise)
+#   mixed : ~1e-6 /ps (bounded by float32 force path per ADR 0007)
+#
+# Thresholds below are a couple of orders of magnitude above the observed
+# floor so they flag real regressions without being fragile against
+# run-to-run RNG-free noise.
+
+[drift]
+mode = "relative_per_ps"
+threshold = 5e-7           # fp64
+threshold_mixed = 5e-5     # mixed
+
+[case]
+# Slow suite — runs nightly, not on every PR.
+slow = true
