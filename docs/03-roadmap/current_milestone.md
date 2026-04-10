@@ -409,13 +409,81 @@ branches continue to compile cleanly.
 
 **Closes:** RD-4. Still deferred behind it:
 
-- **RD-5** (VL-13 sum-order sensitivity, VL-16 fault injection). Now
-  unblocked — the `deterministic` preset exists. Priority is medium:
-  these cases strengthen the physics test matrix but don't unblock
-  other work.
 - **VL-6/7/8** (LAMMPS A/B cases). Still blocked on LAMMPS in CI image.
 - **VL-12** (deterministic velocity init). Still blocked on a
   `velocity create` CLI feature.
+
+### Session RD-5 — sum-order sensitivity + telemetry negative-path (2026-04-10)
+
+Two small, honest additions to close the research-doc N2 and D1 rows
+without overclaiming what the current implementation provides.
+
+**VL-13 — `tests/unit/test_sum_order_sensitivity.cu` (new, 2 tests):**
+
+`SumOrderSensitivity.MorseEnergyBounded` and `.EamEnergyBounded`. Each
+downloads the GPU-built neighbor CSR, permutes every atom's neighbor
+window with a seeded `std::shuffle` across three RNG seeds (1, 7, 42),
+re-uploads the permuted list, and re-runs the force kernel. Asserts
+that `|E_perm − E_base| / |E_base|` stays below a precision-dependent
+bound:
+
+- mixed (`force_t = float`): `1e-5` relative
+- fp64 (`force_t = double`): `1e-12` relative
+
+Scope note embedded in the test header: this is a *bounded-variance*
+test, not a "variance = 0" test. Even under `TDMD_DETERMINISTIC_REDUCE`
+the intra-thread `pe += ...` accumulation is done in neighbor-list
+order in `force_t`, so permuting the window perturbs the per-thread
+partial at the ULP level. ADR 0010 only guarantees bit-reproducibility
+on identical input — that property lives in
+`DeviceMorseDeterminism` / `DeviceEamDeterminism`. VL-13's job is
+orthogonal: the kernel must not amplify neighbor-order perturbations
+beyond the float noise floor, and a future regression that drops a
+double accumulator (the EAM-1B failure mode) would blow right past
+`1e-5`.
+
+Verified green on both production presets: `build-mixed` and
+`build-fp64` each run the pair in ~205 ms. Morse:  ~201 ms; EAM: ~5 ms.
+Full `ctest --preset mixed` after the addition: 85/85 passed, 4
+deterministic-mode tests correctly skipped.
+
+**VL-16 — `verifylab/runners/test_result_schema.py` (new, 6 tests):**
+
+Meta-test of `result_schema.emit_result` / `parse_result_line` — the
+telemetry negative path that VL-14 rewired. Guards against the class
+of bug where a failing case silently reports PASS because the failure
+machinery itself is broken. Coverage:
+
+1. A plain `status="fail"` record round-trips through stdout +
+   `parse_result_line` with the `failures[]` list intact.
+2. `float('nan')` / `float('inf')` metrics are sanitized to JSON
+   `null` without crashing `json.dumps(..., allow_nan=False)` — the
+   direct VL-14 regression case.
+3. An invalid status string (`"failed"`, `"FAIL"`, `"passed"`, `""`,
+   `"ok"`) is rejected at emit time with `ValueError`, so a typo can
+   never leak through as an unrecognized status the runner might
+   treat as pass.
+4. The `VL_RESULT:` sentinel is strictly required; near-misses
+   (`"VL_RESULT {}"`, raw JSON, half-written lines) all parse to
+   `None`.
+5. The `TDMD_VERIFYLAB_JSONL` side-channel writes match the stdout
+   payload byte-for-byte (minus the sentinel prefix), so downstream
+   diffs never have to worry about which channel they're reading.
+
+Runs with the stdlib only — no pytest dependency:
+`python3 -m unittest verifylab.runners.test_result_schema`. Currently
+invoked manually; wiring into a CI step is small and can follow when
+a Python test runner job exists (it does not yet — the runners dir
+has no automated test discovery today).
+
+6/6 green locally. Combined with VL-13 this closes the research-doc
+N2/D1 rows without overstating what deterministic mode actually
+guarantees.
+
+**Closes:** RD-5. Still deferred:
+
+- **VL-6/7/8** (LAMMPS A/B in CI): blocked on LAMMPS in CI image.
+- **VL-12** (deterministic velocity init): blocked on `velocity create`.
 
 ### Session VL closed
 
