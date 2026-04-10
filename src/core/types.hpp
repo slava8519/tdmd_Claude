@@ -22,21 +22,6 @@ using i64 = std::int64_t;
 using u32 = std::uint32_t;
 using u64 = std::uint64_t;
 
-// ---- minimal vec3 ----
-// Plain aggregate so it works on host and (later) device without ceremony.
-// All ops live as free functions in core/math.hpp once we need them.
-struct Vec3 {
-  real x;
-  real y;
-  real z;
-};
-
-// ---- axis-aligned bounding box ----
-struct Aabb {
-  Vec3 lo;
-  Vec3 hi;
-};
-
 // ============================================================================
 // Type role aliases for mixed precision (ADR 0007)
 //
@@ -48,6 +33,7 @@ struct Aabb {
 // ============================================================================
 
 // Layer 1: precision-explicit vector type (template).
+// Aggregate POD — works on host and device without ceremony.
 template<class T>
 struct Vec3T {
   T x;
@@ -57,6 +43,18 @@ struct Vec3T {
 
 using Vec3D = Vec3T<double>;
 using Vec3F = Vec3T<float>;
+
+// ---- minimal vec3 (legacy alias for build-mode precision) ----
+// Vec3 is now a template alias over `real`. In FP64 mode Vec3 == Vec3D.
+// Aggregate initialization `Vec3{x, y, z}` continues to work because
+// Vec3T<T> is itself an aggregate with public x/y/z members.
+using Vec3 = Vec3T<real>;
+
+// ---- axis-aligned bounding box ----
+struct Aabb {
+  Vec3 lo;
+  Vec3 hi;
+};
 
 // Layer 2: role aliases (semantic naming).
 // Mixed mode: positions/velocities in double, forces in float (LAMMPS-style).
