@@ -1,6 +1,6 @@
 # Current milestone status
 
-> **Last updated:** 2026-04-10
+> **Last updated:** 2026-04-10 (post session VL-EXT)
 
 ## Phase 3 series — COMPLETE (closed in session 3B.closing, hardened in session 3D)
 
@@ -184,6 +184,124 @@ suite that gates every PR. VL-1 and VL-2 done; VL-3, VL-4, VL-5 remain.
     and `build-fp64/` directories in `/tmp/`, running both
     `run-verifylab.sh --mode mixed --suite fast` and
     `--mode fp64 --suite fast`. All 3 fast cases PASS in each mode.
+
+### Session VL-EXT — research-doc-driven expansion (2026-04-10)
+
+Autonomous session driven by the "Comprehensive Test Suite Design for a
+Time-Decomposition MD Engine" research document. Goal: fold what's
+achievable given current infrastructure (CPU-only GitHub CI, LAMMPS as
+local submodule, no ML yet) into the suite, and freeze the rest as a
+documented backlog.
+
+**Shipped (8 commits):**
+
+- **ADR 0010 — Reduction determinism contract** (`42885c1`). Complete
+  RD-1 audit of every reduction primitive in `src/`: 6 enumerated call
+  sites (cell-list slot reservation + 4 energy accumulators + 1
+  histogram), no hidden `cub`/`thrust`/`__shfl` usage anywhere, forces
+  NOT atomic-accumulated (each thread owns `forces[i]` exclusively).
+  Conclusion: full bit-reproducibility is bounded to those 6 sites.
+  Decision: Option B — two modes via compile-time flag
+  `TDMD_DETERMINISTIC_REDUCE`, default OFF, new `build-deterministic/`
+  pairs with fp64. Perf budget 1.5–3× in deterministic mode;
+  production mode must not regress. Guarantees scoped explicitly:
+  same-GPU same-build bit-equal forces/energies/virial; NOT
+  cross-GPU, NOT cross-MPI-rank, NOT cross-precision. Implementation
+  (RD-3..RD-5) deferred — this session delivers the contract and
+  audit, not the kernels.
+
+- **VL-9 — Neighbor list stress tests** (`a0c85da`). 5 new tests in
+  `test_neighbor_list.cpp`: random-gas brute-force parity (uneven
+  cell occupancy), precise half-skin boundary (0.99× vs 1.01× on two
+  skin values to guard against hardcoded 0.5 Å), multi-atom max-not-
+  sum (50 atoms under threshold must not trigger; one over must),
+  fast-atom rebuild + post-rebuild correctness. Caught a genuine
+  off-by-one in my own first draft — the boundary test is effective
+  against its intended class of bug.
+
+- **VL-10 — EAM mapping permutation negative test + parser bug fix**
+  (`703d1e7`). Synthetic 2-element A/B setfl generator with
+  deliberately distinct functional forms; test asserts that
+  `[1,2,1,2] vs [2,1,2,1]` on the same 4-atom config produces PE and
+  force differences > 1e-3. **Found a real bug in production code
+  while writing this:** the multi-element `read_setfl` loop used
+  `std::getline` which consumed the empty remainder of the previous
+  rho(r) array instead of the next element header. Invisible for
+  months because every existing test used single-element
+  `Cu_mishin1.eam.alloy`. Fix: skip-whitespace loop in
+  `eam_alloy.cpp:137`. All 46/46 tests green after the fix. Exactly
+  the class of regression the research doc's P4 ("permuting mapping
+  must change energies") was designed to surface.
+
+- **VL-11 — EAM embedding density consistency** (`3e62a99`). On
+  256-atom Cu FCC, computes per-atom `rho_i` two ways (neighbor list
+  half-list walk vs. O(N²) brute force) and asserts match within
+  1e-10. Catches a class of bugs `run0-force-match` cannot: a missing
+  neighbor on the density list silently corrupts `fp_i` AND — through
+  the embedding-derivative coupling — `fp_j` for every atom that has
+  `i` as a neighbor. Pair-additive Morse is already protected by
+  run0-force-match; EAM's many-body coupling deserves its own
+  assertion.
+
+- **VL-14 — Unified VerifyLab result schema + migration** (`85b08f0`).
+  New `verifylab/runners/result_schema.py` defines schema v1 (case,
+  mode, status={pass,fail,error}, metrics, thresholds, failures,
+  duration, timestamp) and the stable `VL_RESULT:` sentinel line. All
+  4 existing cases migrated in one commit to emit the record at the
+  end of `main()`. `run_all.py` gains `--jsonl <path>` to aggregate
+  scraped records. Status semantics are explicit: "fail" = real
+  regression, "error" = setup/crash (cannot grade); CI should weigh
+  these differently. NaN/inf metrics serialize as `null` so downstream
+  parsers don't choke. Fast suite 3/3 PASS, aggregated JSONL validated.
+
+- **VL-15 — setfl parser robustness** (`70a3cb6`). 5 negative tests
+  asserting that corrupt setfl files throw rather than silently
+  producing garbage splines: empty file, comments-only, missing
+  embedding array, truncated embedding array, missing pair block. Two
+  cases deliberately NOT covered and tracked as follow-ups: negative
+  `Nrho`/`Nr` (requires a guard in the reader before it can reject),
+  and short element-name list on the ntypes line (reader currently
+  tolerates silently).
+
+- **ML test suite frozen as backlog** (`42885c1`, embedded in the
+  ADR 0010 commit). P5/ML1/ML2/ML3/ML4 contract added to
+  `current_milestone.md`: no ML milestone can close without all 5
+  cases green in both build-mixed/ and build-fp64/. This is a
+  commitment, not an aspiration — it gives future-us permission to
+  refuse closing an ML milestone that lacks descriptor reproducibility
+  or finite-difference force validation.
+
+**Test count after session:** `build-mixed/` and `build-fp64/` both at
+52/52 unit tests PASS (was 38 at start of VL session). VerifyLab fast
+suite at 3/3 PASS in both modes; nve-drift slow case unchanged.
+
+**Deferred from this session (explicitly):**
+
+| Item | Status | Reason |
+|---|---|---|
+| VL-6 LAMMPS `rerun` oracle | deferred | needs LAMMPS in CI image; out of scope for a session that already shipped 8 commits |
+| VL-7 NVT stability vs LAMMPS | deferred | same — needs LAMMPS in nightly |
+| VL-8 MSD/diffusion vs LAMMPS | deferred | same |
+| VL-12 deterministic velocity init (`velocity ... loop geom` analogue) | deferred | **blocked**: TDMD has no internal velocity generator — velocities come from LAMMPS data files. Revisit when a `velocity create` CLI flag is added |
+| VL-13 sum-order sensitivity | deferred | blocked on RD-3/4 (needs `build-deterministic/`) |
+| VL-16 fault injection via `#ifdef` | deferred | blocked on VL-14 (✅ now) and RD-4 (needs `build-deterministic/`) |
+| RD-3 implement deterministic cell placement + ordered energy reduce | deferred | major core engine work; ADR 0010 delivers the contract, implementation is a separate arc |
+| RD-4 `build-deterministic/` CMake preset + CI slow-suite job | deferred | blocked on RD-3 |
+| RD-5 wire VL-13 / VL-16 to deterministic mode | deferred | blocked on RD-4 |
+
+Follow-ups VL-14 unblocks: fault injection (VL-16) can now latch onto
+the schema once `TDMD_DETERMINISTIC_REDUCE` exists. Sum-order
+sensitivity (VL-13) can write strict-equality metrics against the
+`status=pass` threshold `0.0`.
+
+**Process note.** The EAM multi-element parser bug (VL-10 commit) is
+the second Phase-3-era latent bug found by this session; both were
+invisible in production because no test exercised the relevant code
+path. `docs/04-development/lessons-learned.md` already carries the
+meta-lesson "documents lie, code does not" — VL-10 and VL-11 reinforce
+it from the opposite direction: **tests that don't exist lie the
+loudest.** Every case added here was motivated by the observation
+that a specific failure mode had no regression gate.
 
 ### Session VL closed
 
