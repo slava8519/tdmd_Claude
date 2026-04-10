@@ -128,12 +128,26 @@ void EamAlloy::read_setfl(const std::string& filename) {
     auto st = static_cast<std::size_t>(t);
 
     // Element header line: atomic_number mass lattice_constant lattice_type.
-    if (!std::getline(file, line)) TDMD_THROW("premature end of EAM file");
-    // We skip it after consuming it — mass is already in the data file.
-
-    // But the header may have been consumed by the previous read_values, so
-    // let's read from the stream properly.
-    // Actually setfl format has this line, then the data follows.
+    // For t==0 the stream is positioned at the start of this line (after the
+    // getline on line 5). For t>0 the stream is positioned mid-line: the
+    // previous read_values() used operator>> which stops after the last
+    // numeric token, leaving the rest of that line unread. A plain getline
+    // here would consume only that empty remainder. Guard against this by
+    // skipping any line that does not contain a non-space character.
+    bool got_header = false;
+    while (std::getline(file, line)) {
+      for (char c : line) {
+        if (c != ' ' && c != '\t' && c != '\r') {
+          got_header = true;
+          break;
+        }
+      }
+      if (got_header) break;
+    }
+    if (!got_header) TDMD_THROW("premature end of EAM file");
+    // Header content (atomic_number mass lattice_const lattice_type) is
+    // intentionally discarded — mass lives in the LAMMPS data file, and the
+    // lattice metadata is informational only.
 
     // F(rho) values.
     embedding_[st].n = nrho;
