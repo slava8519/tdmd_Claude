@@ -1,0 +1,16 @@
+Loading: benchmarks/phase1_baseline/medium.data
+Atoms: 32000  Box: 72.300 x 72.300 x 72.300
+Velocities initialized at T=300 K (seed=42)
+Loading EAM: tests/data/Cu_mishin1.eam.alloy
+EAM: 1 types, cutoff=5.507 A
+Creating FastPipelineScheduler (EAM)
+Warmup: 100 steps...
+Measuring: 1000 steps...
+
+=== Measurement Results ===
+Scheduler: fast_pipeline  Potential: eam  Atoms: 32000  Zones: 0  Steps: 1000 (warmup: 100)
+Wall clock: 0.435 s
+Timesteps/s: 2300.69
+Kernel launches: 7000 (7.0 per step)
+Ticks: 1000  Dep checks: 0 (failures: 0)
+===========================

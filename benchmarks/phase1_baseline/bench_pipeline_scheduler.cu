@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <random>
 #include <string>
 #include <vector>
@@ -23,6 +24,7 @@
 #include "core/types.hpp"
 #include "io/lammps_data_reader.hpp"
 #include "potentials/device_morse.cuh"
+#include "potentials/eam_alloy.hpp"
 #include "scheduler/fast_pipeline_scheduler.cuh"
 #include "scheduler/pipeline_scheduler.cuh"
 
@@ -33,6 +35,8 @@ namespace {
 struct BenchConfig {
   std::string data_file;
   std::string scheduler_name = "pipeline";  // "pipeline" or "fast_pipeline"
+  std::string potential = "morse";  // "morse" or "eam"
+  std::string eam_file;             // setfl path when potential == "eam"
   i32 steps = 1000;
   i32 warmup = 100;
   std::string output;  // empty = stdout
@@ -71,6 +75,9 @@ void print_usage() {
       "300)\n"
       "  --seed <N>          RNG seed for velocity init (default 42)\n"
       "  --morse D,a,r0,rc   Morse parameters (default 0.3429,1.3588,2.866,6.0)\n"
+      "  --potential <name>  morse (default) or eam — eam requires --eam\n"
+      "  --eam <file>        setfl / eam.alloy file when --potential eam;\n"
+      "                      EAM is only supported with --scheduler fast_pipeline\n"
       "  --help, -h          Print this help\n");
 }
 
@@ -115,6 +122,10 @@ BenchConfig parse_args(int argc, char** argv) {
         std::fprintf(stderr, "Error: --morse expects D,alpha,r0,rc\n");
         std::exit(1);
       }
+    } else if (arg == "--potential" && i + 1 < argc) {
+      cfg.potential = argv[++i];
+    } else if (arg == "--eam" && i + 1 < argc) {
+      cfg.eam_file = argv[++i];
     }
   }
   return cfg;
@@ -202,9 +213,38 @@ int main(int argc, char** argv) {
   std::fprintf(stderr, "Velocities initialized at T=%.0f K (seed=%u)\n",
                static_cast<double>(cfg.t_init), cfg.seed);
 
-  // Set up Morse potential.
+  // Validate potential selection up front. EAM requires a setfl file
+  // AND the fast_pipeline scheduler — the legacy PipelineScheduler has
+  // no EAM path today (see FEAT-EAM-Production-Pipeline).
+  if (cfg.potential != "morse" && cfg.potential != "eam") {
+    std::fprintf(stderr, "Error: --potential must be 'morse' or 'eam'\n");
+    return 1;
+  }
+  if (cfg.potential == "eam") {
+    if (cfg.eam_file.empty()) {
+      std::fprintf(stderr,
+                   "Error: --potential eam requires --eam <setfl-file>\n");
+      return 1;
+    }
+    if (cfg.scheduler_name != "fast_pipeline") {
+      std::fprintf(stderr,
+                   "Error: --potential eam is only supported with "
+                   "--scheduler fast_pipeline\n");
+      return 1;
+    }
+  }
+
+  // Set up Morse potential. For EAM we load the setfl file below.
   potentials::MorseParams params{cfg.morse_d, cfg.morse_alpha, cfg.morse_r0,
                                  cfg.morse_rc, cfg.morse_rc * cfg.morse_rc};
+
+  potentials::EamAlloy eam;
+  if (cfg.potential == "eam") {
+    std::fprintf(stderr, "Loading EAM: %s\n", cfg.eam_file.c_str());
+    eam.read_setfl(cfg.eam_file);
+    std::fprintf(stderr, "EAM: %d types, cutoff=%.3f A\n", eam.ntypes(),
+                 static_cast<double>(eam.cutoff()));
+  }
 
   // Common measurement variables.
   i32 n_zones = 0;
@@ -215,14 +255,26 @@ int main(int argc, char** argv) {
   double wall_s = 0;
 
   if (cfg.scheduler_name == "fast_pipeline") {
-    // --- FastPipelineScheduler path ---
+    // --- FastPipelineScheduler path (Morse or EAM) ---
     scheduler::FastPipelineConfig fcfg;
     fcfg.dt = cfg.dt;
     fcfg.r_skin = cfg.r_skin;
     fcfg.rebuild_every = cfg.rebuild_every;
 
-    std::fprintf(stderr, "Creating FastPipelineScheduler\n");
-    scheduler::FastPipelineScheduler sched(state.box, natoms, params, fcfg);
+    // Both constructors share the same run/measure loop below. We hold
+    // the scheduler in a unique_ptr so the two construction paths can
+    // feed one downstream block.
+    std::unique_ptr<scheduler::FastPipelineScheduler> sched_ptr;
+    if (cfg.potential == "eam") {
+      std::fprintf(stderr, "Creating FastPipelineScheduler (EAM)\n");
+      sched_ptr = std::make_unique<scheduler::FastPipelineScheduler>(
+          state.box, natoms, eam, fcfg);
+    } else {
+      std::fprintf(stderr, "Creating FastPipelineScheduler (Morse)\n");
+      sched_ptr = std::make_unique<scheduler::FastPipelineScheduler>(
+          state.box, natoms, params, fcfg);
+    }
+    auto& sched = *sched_ptr;
     sched.upload(state.positions.data(), state.velocities.data(),
                  state.forces.data(), state.types.data(), state.ids.data(),
                  state.masses.data(), static_cast<i32>(state.masses.size()));
@@ -300,6 +352,8 @@ int main(int argc, char** argv) {
   std::fprintf(out,
                "{\n"
                "  \"scheduler\": \"%s\",\n"
+               "  \"potential\": \"%s\",\n"
+               "  \"eam_file\": \"%s\",\n"
                "  \"data_file\": \"%s\",\n"
                "  \"n_atoms\": %d,\n"
                "  \"n_zones\": %d,\n"
@@ -316,7 +370,8 @@ int main(int argc, char** argv) {
                "  \"dep_check_failures\": %lld,\n"
                "  \"ticks\": %lld\n"
                "}\n",
-               cfg.scheduler_name.c_str(), cfg.data_file.c_str(), natoms,
+               cfg.scheduler_name.c_str(), cfg.potential.c_str(),
+               cfg.eam_file.c_str(), cfg.data_file.c_str(), natoms,
                n_zones, cfg.steps, cfg.warmup,
                cfg.deterministic ? "true" : "false", cfg.n_streams,
                static_cast<double>(cfg.dt), wall_s, timesteps_per_s,
@@ -329,14 +384,14 @@ int main(int argc, char** argv) {
 
   std::fprintf(stderr,
                "\n=== Measurement Results ===\n"
-               "Scheduler: %s  Atoms: %d  Zones: %d  Steps: %d (warmup: %d)\n"
+               "Scheduler: %s  Potential: %s  Atoms: %d  Zones: %d  Steps: %d (warmup: %d)\n"
                "Wall clock: %.3f s\n"
                "Timesteps/s: %.2f\n"
                "Kernel launches: %lld (%.1f per step)\n"
                "Ticks: %lld  Dep checks: %lld (failures: %lld)\n"
                "===========================\n",
-               cfg.scheduler_name.c_str(), natoms, n_zones, cfg.steps,
-               cfg.warmup, wall_s, timesteps_per_s,
+               cfg.scheduler_name.c_str(), cfg.potential.c_str(), natoms,
+               n_zones, cfg.steps, cfg.warmup, wall_s, timesteps_per_s,
                static_cast<long long>(kernel_launches), launches_per_step,
                static_cast<long long>(ticks),
                static_cast<long long>(dep_checks),

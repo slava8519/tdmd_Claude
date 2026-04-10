@@ -1,0 +1,20 @@
+{
+  "scheduler": "fast_pipeline",
+  "potential": "eam",
+  "eam_file": "tests/data/Cu_mishin1.eam.alloy",
+  "data_file": "benchmarks/phase1_baseline/small.data",
+  "n_atoms": 4000,
+  "n_zones": 0,
+  "n_steps": 2000,
+  "warmup_steps": 200,
+  "deterministic": false,
+  "n_streams": 4,
+  "dt": 0.001000,
+  "wall_clock_s": 0.692188,
+  "timesteps_per_s": 2889.39,
+  "kernel_launches_total": 14000,
+  "kernel_launches_per_step": 7.00,
+  "dep_check_calls": 0,
+  "dep_check_failures": 0,
+  "ticks": 2000
+}
