@@ -1,6 +1,6 @@
 # Current milestone status
 
-> **Last updated:** 2026-04-11 (post session OPT)
+> **Last updated:** 2026-04-11 (post session FEAT-EAM Phase A+B)
 
 ## Phase 3 series — COMPLETE (closed in session 3B.closing, hardened in session 3D)
 
@@ -552,6 +552,96 @@ nlist rebuild path. The single-GPU optimization ceiling at ≤32 K atoms
 is narrower than pre-session estimates suggested; remaining wins are
 either structural (multi-GPU, kernel fusion) or require touching
 cell-list / neighbor-list storage format.
+
+### Session FEAT-EAM — EAM production pipeline, Phase A + B (2026-04-11)
+
+Direct follow-on to the OPT session. OPT-2 was reframed mid-session
+when it became clear that "migrate EAM to FastPipelineScheduler" was
+a feature port, not an optimization — there was no existing EAM-in-
+loop baseline to measure a speedup against, so it was filed as
+FEAT-EAM-Production-Pipeline. This session delivered Phase A (core
+wiring + tests) and Phase B (benchmark CLI + sweep + enablement
+report). Phase C (LAMMPS A/B via VerifyLab) is deferred to its own
+session. Full report:
+[`docs/05-benchmarks/feat-eam-pipeline-results.md`](../05-benchmarks/feat-eam-pipeline-results.md).
+
+**Phase A — core wiring (commit `8c18a94`):**
+
+Scheduler gets a second constructor
+`FastPipelineScheduler(box, natoms, EamAlloy, cfg)` that uploads the
+spline tables into an owned `DeviceEam` during construction. The
+potential choice is captured explicitly via a new
+`enum class PotentialKind { Morse, Eam }` rather than implicitly via
+a null pointer — the `step()` hot path does a short switch-dispatch
+to `step_morse()` / `step_eam()` so feature work does not smear
+across the integrator sequence. Cached `cutoff_` + new
+`interaction_cutoff()` accessor serve as the single source of truth
+for the neighbor list builder.
+
+Three new unit tests in `tests/unit/test_fast_pipeline_eam.cu`:
+
+- `EamStepMatchesDirectCompute` — at t=0 the scheduler's initial
+  force compute must match a standalone `DeviceEam::compute()` on the
+  same positions to within `kForceTolerance`. Guards against any
+  hidden transformation between `upload()` and EAM dispatch.
+- `EamNve100StepsStable` — 100 velocity-Verlet steps on Cu FCC 256
+  with `Cu_mishin1` EAM, `|dE/E| < 1e-3` against the CPU reference.
+  This is a "scheduler wiring did not break the physics" floor, not
+  a precision claim.
+- `EamDeterministicReplay` — two independent scheduler instances
+  with the same initial condition must reach matching positions over
+  50 steps. Step-level replay on a single GPU; does not require
+  `TDMD_DETERMINISTIC_REDUCE`.
+
+Morse path is untouched except for the dispatch hop. The existing
+`FastPipelineScheduler.KernelLaunchInvariant` test still pins Morse
+at exactly 5 kernel launches per step. EAM pins at exactly 7 (the
+three EAM passes replace Morse's single force launch).
+
+**Phase B — benchmark CLI + sweep (commit `ec93913`):**
+
+`bench_pipeline_scheduler` grew `--potential morse|eam` and
+`--eam <setfl>`. Validation is strict: `--potential eam` requires
+`--eam <file>` and `--scheduler fast_pipeline` (the legacy
+`PipelineScheduler` has no EAM wiring). Both potentials share one
+measurement loop via a `unique_ptr<FastPipelineScheduler>`, so the
+code path downstream of construction is identical.
+
+Sweep (6 cells × 3 sequential runs, 7 s pauses per §4, mixed
+preset, RTX 5080, medians of 3):
+
+| Size   | Atoms  | Morse ts/s | EAM ts/s | EAM / Morse |
+|--------|-------:|-----------:|---------:|------------:|
+| tiny   |    256 |     8 860  |   4 241  |      0.48   |
+| small  |  4 000 |     5 254  |   2 889  |      0.55   |
+| medium | 32 000 |     3 687  |   2 301  |      0.62   |
+
+Per-run raw JSON + stderr committed under
+`docs/05-benchmarks/feat-eam-raw/`. The EAM/Morse ratio improves
+with system size because small systems are launch-overhead bound
+and amortize EAM's two extra passes (density + embedding) poorly;
+larger systems let the embedding/force arithmetic dominate.
+
+Honest caveat in the report: Morse absolute numbers in this sweep
+are 6–12 % below the 2026-04-10 OPT-1 session's numbers despite
+identical binary, data, scheduler, and protocol. Diagnosed as
+between-session environmental drift (thermal / clock boost
+headroom). Only **within-session** ratios are apples-to-apples;
+the EAM/Morse column is the honest comparison.
+
+**Explicitly not delivered this session:**
+
+- LAMMPS A/B for EAM via VerifyLab (Phase C).
+- EAM force determinism beyond step-level replay (that property
+  already lives under `TDMD_DETERMINISTIC_REDUCE` via
+  `DeviceEamDeterminism.EnergyBitIdentical` — unchanged).
+- Any optimization targeting EAM itself. Today's numbers become the
+  baseline any future EAM-targeted work would measure against.
+
+**Tests:** `ctest --preset mixed` → 88/88 passed;
+`ctest --preset fp64` → 88/88 passed. 85 baseline + 3 new EAM
+FastPipeline tests. Morse launch-invariant test still exact at
+5/step.
 
 ### Session VL closed
 
