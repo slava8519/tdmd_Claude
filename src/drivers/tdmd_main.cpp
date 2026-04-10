@@ -39,6 +39,8 @@ struct RunConfig {
   int thermo_every = 100;
   // VerifyLab force dump (step 0, LAMMPS dump format).
   std::string dump_forces_file;
+  // VerifyLab final-state dump (after main loop, LAMMPS dump format).
+  std::string dump_final_file;
 };
 
 void print_usage() {
@@ -51,6 +53,7 @@ void print_usage() {
   std::printf("  --skin <A>             Neighbor list skin (default 1.0)\n");
   std::printf("  --thermo <N>           Print thermo every N steps (default 100)\n");
   std::printf("  --dump-forces <file>   Write step-0 forces in LAMMPS dump format\n");
+  std::printf("  --dump-final <file>    Write final-state dump after main loop\n");
   std::printf("  --version, -v          Print version\n");
   std::printf("  --help, -h             Print this help\n");
 }
@@ -145,6 +148,8 @@ int main(int argc, char** argv) {
       cfg.thermo_every = std::atoi(argv[++i]);
     } else if (arg == "--dump-forces" && i + 1 < argc) {
       cfg.dump_forces_file = argv[++i];
+    } else if (arg == "--dump-final" && i + 1 < argc) {
+      cfg.dump_final_file = argv[++i];
     } else if (arg == "--morse" && i + 1 < argc) {
       // Parse "D,alpha,r0,rc"
       if (std::sscanf(argv[++i], "%lf,%lf,%lf,%lf",
@@ -253,6 +258,12 @@ int main(int argc, char** argv) {
     std::printf("\nFinal:\n");
     print_thermo(state, pe, ke);
     std::printf("Neighbor list rebuilds: %d\n", rebuilds);
+  }
+
+  if (!cfg.dump_final_file.empty()) {
+    state.step = cfg.nsteps;
+    write_lammps_force_dump(state, cfg.dump_final_file);
+    std::printf("Wrote final-state dump to %s\n", cfg.dump_final_file.c_str());
   }
 
   return 0;

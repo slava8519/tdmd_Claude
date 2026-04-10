@@ -148,10 +148,20 @@ suite that gates every PR. VL-1 and VL-2 done; VL-3, VL-4, VL-5 remain.
   /ps (1000× under 5e-7 threshold), mixed drift ~3.0e-8 /ps (1700×
   under 5e-5 threshold). Float32 force noise mostly cancels on long
   time-averaging, so drift stays tiny even in mixed mode.
-- **VL-4 ⏳ — cross-precision A/B.** Same input run in both
-  `build-mixed/` and `build-fp64/`, trajectories compared against each
-  other (not against LAMMPS). Answers "how fast do mixed and fp64
-  diverge under NVE?".
+- **VL-4 ✅ — `cross-precision-ab` case.** Runs 100 fs of NVE on the
+  shared 4000-atom Cu FCC input in both `build-mixed/` and
+  `build-fp64/`, compares final positions, forces, and total energy
+  atom-by-atom. Added `--dump-final <file>` flag to `tdmd_standalone`
+  so end-of-run state can be dumped in the same LAMMPS-custom format
+  already used for step-0 dumps. This is the only VerifyLab case that
+  does not take `--mode` — it always runs both. 100 steps is
+  deliberate: MD is chaotic, so identical inputs in different
+  precision paths diverge exponentially with Lyapunov time ~1 ps;
+  any check run for much longer than 0.1 ps would be measuring
+  physics, not a bug. Observed on 2026-04-10: max `|dx|` ~2.1e-5 Å,
+  max `|dF|` ~6.8e-4 eV/Å, `|dTE|/|TE|` ~1.1e-5. All within ~24×
+  margin of the committed thresholds. Fast suite now at 3/3 PASS
+  (two-atoms-morse, run0-force-match, cross-precision-ab).
 - **VL-5 ⏳ — CI wiring.** `./scripts/run-verifylab.sh --suite fast`
   as a required check on PRs. Fast suite runs every PR; slow suite
   nightly.

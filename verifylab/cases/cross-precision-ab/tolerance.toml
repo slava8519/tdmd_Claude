@@ -1,0 +1,37 @@
+# Tolerances for the cross-precision-ab VerifyLab case.
+# Loosening any of these requires an ADR.
+#
+# This case is unusual: it does NOT take a --mode. It runs the same
+# input in BOTH build-mixed and build-fp64 and compares the two
+# trajectories against each other. So tolerances are single-valued,
+# not per-mode.
+#
+# The thresholds below target "mixed-vs-fp64 divergence after a short
+# NVE trajectory (100 fs)". Longer runs will diverge chaotically as
+# Lyapunov amplification kicks in — that is physics, not a bug — so
+# this check must stay at small nsteps.
+#
+# Observed on 2026-04-10 (4000 atoms, 100 steps, 0.1 ps):
+#   max |dx|      ~ 2.1e-5 A     (dominated by float32 force noise, ADR 0007)
+#   max |dF|      ~ 6.8e-4 eV/A  (same source)
+#   |dTE| / |TE|  ~ 1.1e-5       (roughly constant offset between the
+#                                 two modes' equilibrium PE baselines,
+#                                 not true drift)
+
+[position]
+mode = "max_absolute_component"
+unit = "A"
+threshold = 5e-4            # ~24x observed ceiling
+
+[force]
+mode = "max_absolute_component"
+unit = "eV/A"
+threshold = 2e-2            # ~30x observed ceiling
+
+[energy]
+mode = "relative"
+threshold_rel = 1e-4        # ~9x observed |dTE|/|TE|
+
+[case]
+# Fast CI suite — runs on every PR.
+slow = false
