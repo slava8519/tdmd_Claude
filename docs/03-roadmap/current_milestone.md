@@ -365,14 +365,57 @@ version) would be caught.
 engine work, ADR 0010 delivers the contract, implementation is a
 separate arc"). ADR 0010 is now implemented end-to-end.
 
-**Still deferred:**
+**Still deferred (pre-RD-4):**
 
 | item   | reason |
 |--------|--------|
-| RD-4   | CMake preset + CI slow-suite job for `build-deterministic` — needs a CI slot and a decision on whether to run the det suite on every PR or nightly |
+| RD-4   | CMake preset + CI compile-only job for `build-deterministic` — needs a CI slot and a decision on whether to run the det suite on every PR or nightly |
 | RD-5   | VL-13 sum-order sensitivity + VL-16 fault injection — were blocked on `build-deterministic` existing, now can be written, but sit behind RD-4 in priority because they need CI wiring to be useful |
 | VL-6/7/8 LAMMPS A/B cases | unchanged: still need LAMMPS in CI image |
 | VL-12  | still blocked: TDMD has no `velocity create` CLI flag |
+
+### Session RD-4 — CMake preset + deterministic CI job (2026-04-10)
+
+Formalizes the three build configurations as first-class CMake
+presets so "what options go into build-det" is documented in a
+tracked file instead of shell history.
+
+**`CMakePresets.json` at repo root**, presets:
+
+| preset          | binaryDir     | options |
+|-----------------|---------------|---------|
+| `mixed`         | `build-mixed` | CUDA on, PRECISION=mixed |
+| `fp64`          | `build-fp64`  | CUDA on, PRECISION=fp64  |
+| `deterministic` | `build-det`   | CUDA on, PRECISION=mixed, DETERMINISTIC_REDUCE=ON |
+
+Matching `buildPresets` and `testPresets` entries so the full
+`cmake --preset X && cmake --build --preset X && ctest --preset X`
+flow works for each. The presets preserve existing `binaryDir` names
+so nothing in the tree that references `build-mixed/`, `build-fp64/`,
+`build-det/` needs to move.
+
+Confirmed locally — after `rm -rf build-*` a clean
+`cmake --preset deterministic && cmake --build --preset deterministic
+&& ctest --preset deterministic -R Determinism` returns
+`3/3 Passed`.
+
+**New CI job `deterministic-compile-only`** in `.github/workflows/build.yml`.
+Mirrors the existing `cuda-compile-only` job but runs
+`cmake --preset deterministic` so the det code path cannot silently
+rot. GitHub free-tier has no GPU, so the determinism unit tests
+themselves still run manually during development — the CI job only
+guarantees that both the `TDMD_DETERMINISTIC_REDUCE` ON and OFF
+branches continue to compile cleanly.
+
+**Closes:** RD-4. Still deferred behind it:
+
+- **RD-5** (VL-13 sum-order sensitivity, VL-16 fault injection). Now
+  unblocked — the `deterministic` preset exists. Priority is medium:
+  these cases strengthen the physics test matrix but don't unblock
+  other work.
+- **VL-6/7/8** (LAMMPS A/B cases). Still blocked on LAMMPS in CI image.
+- **VL-12** (deterministic velocity init). Still blocked on a
+  `velocity create` CLI feature.
 
 ### Session VL closed
 

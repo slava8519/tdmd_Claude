@@ -71,6 +71,37 @@ jobs:
           export PATH=/usr/local/cuda-12.6/bin:$PATH
           cmake --build build -j
 
+  # ⚠️ TEMPORARY: compile-only because GitHub free-tier has no GPU.
+  # This job exists so the TDMD_DETERMINISTIC_REDUCE=ON code path (ADR 0010)
+  # cannot silently rot. It reuses the `deterministic` CMake preset so a
+  # maintainer running `cmake --preset deterministic` locally gets exactly
+  # the same configuration CI tests. Deterministic-mode unit tests
+  # (DeviceCellListDeterminism, DeviceMorseDeterminism, DeviceEamDeterminism)
+  # require a real GPU and run manually during development — wire them into
+  # CI when a self-hosted GPU runner lands.
+  deterministic-compile-only:
+    name: "Deterministic mode compile-only (TEMPORARY)"
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install CUDA toolkit
+        run: |
+          wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          sudo apt-get update
+          sudo apt-get install -y cuda-toolkit-12-6 ninja-build g++
+
+      - name: Configure (deterministic preset)
+        run: |
+          export PATH=/usr/local/cuda-12.6/bin:$PATH
+          cmake --preset deterministic
+
+      - name: Build (compile-only, no tests)
+        run: |
+          export PATH=/usr/local/cuda-12.6/bin:$PATH
+          cmake --build --preset deterministic -j
+
   # ⚠️ TEMPORARY: compile-only because we cannot run multi-rank tests in CI.
   # Catches: missing MPI headers, broken signatures, broken collective calls.
   # Does NOT catch: deadlocks, rank logic bugs, off-by-one in partitioning.

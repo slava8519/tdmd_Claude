@@ -1,0 +1,88 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 24,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "TDMD_BUILD_TESTS": "ON",
+        "TDMD_ENABLE_CUDA": "ON"
+      }
+    },
+    {
+      "name": "mixed",
+      "inherits": "base",
+      "displayName": "Mixed precision (production default)",
+      "description": "LAMMPS-style mixed precision (pos/vel double, forces float, accums double). This is the production build used for scientific runs.",
+      "binaryDir": "${sourceDir}/build-mixed",
+      "cacheVariables": {
+        "TDMD_PRECISION": "mixed"
+      }
+    },
+    {
+      "name": "fp64",
+      "inherits": "base",
+      "displayName": "All-double reference",
+      "description": "Full double-precision reference build. Slower, used for validating the mixed path and as a numerical ground truth in VerifyLab cross-precision-ab.",
+      "binaryDir": "${sourceDir}/build-fp64",
+      "cacheVariables": {
+        "TDMD_PRECISION": "fp64"
+      }
+    },
+    {
+      "name": "deterministic",
+      "inherits": "base",
+      "displayName": "Deterministic reductions (debug/test only)",
+      "description": "Mixed precision plus TDMD_DETERMINISTIC_REDUCE=ON per ADR 0010. Bit-reproducible cell placement and energy reductions. ~2% slower than mixed on small systems, grows with N. Intended for catching precision regressions in unit tests and for VL-13/VL-16 sum-order cases — not for production runs.",
+      "binaryDir": "${sourceDir}/build-det",
+      "cacheVariables": {
+        "TDMD_PRECISION": "mixed",
+        "TDMD_DETERMINISTIC_REDUCE": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "mixed",
+      "configurePreset": "mixed"
+    },
+    {
+      "name": "fp64",
+      "configurePreset": "fp64"
+    },
+    {
+      "name": "deterministic",
+      "configurePreset": "deterministic"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "mixed",
+      "configurePreset": "mixed",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "fp64",
+      "configurePreset": "fp64",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "deterministic",
+      "configurePreset": "deterministic",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}
