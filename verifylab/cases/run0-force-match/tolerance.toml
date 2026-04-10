@@ -1,0 +1,30 @@
+# Tolerances for the run0-force-match VerifyLab case.
+# Loosening any of these requires an ADR.
+#
+# The lattice is a perfect 256-atom Cu FCC at a=3.615 A, so the analytic
+# per-atom force is zero by symmetry. LAMMPS references sit at ~1e-15
+# (machine zero for double). TDMD in mixed mode is bounded by float32
+# precision in the force path (ADR 0007) — observed residuals ~1e-6 on
+# individual atoms. In fp64 mode TDMD also hits ~1e-14.
+#
+# Because the reference is effectively zero, we compare by *absolute*
+# max-component difference, not relative error. Relative would divide by
+# ~1e-15 and blow up on noise.
+
+[forces_morse]
+mode = "max_absolute"
+unit = "eV/A"
+threshold = 1e-12          # fp64
+threshold_mixed = 5e-5     # mixed (float32 force path, see ADR 0007)
+
+[forces_eam]
+mode = "max_absolute"
+unit = "eV/A"
+# EAM has more accumulation (density gather + force scatter) so noise is
+# marginally higher than pair-only Morse, especially in mixed mode.
+threshold = 1e-12          # fp64
+threshold_mixed = 1e-4     # mixed
+
+[case]
+# Fast CI suite case — runs on every PR.
+slow = false

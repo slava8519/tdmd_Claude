@@ -15,6 +15,7 @@
 #include "integrator/velocity_verlet.hpp"
 #include "io/lammps_data_reader.hpp"
 #include "neighbors/neighbor_list.hpp"
+#include "potentials/eam_alloy.hpp"
 #include "potentials/force_compute.hpp"
 #include "potentials/morse.hpp"
 
@@ -25,11 +26,13 @@ struct RunConfig {
   std::string data_file;
   int nsteps = 1000;
   double dt = 0.001;  // ps (1 fs)
-  // Morse parameters.
+  // Morse parameters (used when --eam is not given).
   double morse_d = 0.3429;
   double morse_alpha = 1.3588;
   double morse_r0 = 2.866;
   double morse_rc = 9.5;
+  // EAM setfl file (non-empty → use EAM instead of Morse).
+  std::string eam_file;
   // Neighbor list.
   double skin = 1.0;
   // Output.
@@ -44,6 +47,7 @@ void print_usage() {
   std::printf("  --nsteps <N>           Number of steps (default 1000)\n");
   std::printf("  --dt <ps>              Time step in ps (default 0.001)\n");
   std::printf("  --morse D,alpha,r0,rc  Morse parameters (default 0.3429,1.3588,2.866,9.5)\n");
+  std::printf("  --eam <setfl-file>     EAM/alloy potential (overrides --morse)\n");
   std::printf("  --skin <A>             Neighbor list skin (default 1.0)\n");
   std::printf("  --thermo <N>           Print thermo every N steps (default 100)\n");
   std::printf("  --dump-forces <file>   Write step-0 forces in LAMMPS dump format\n");
@@ -149,6 +153,8 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "Error: --morse expects D,alpha,r0,rc\n");
         return 1;
       }
+    } else if (arg == "--eam" && i + 1 < argc) {
+      cfg.eam_file = argv[++i];
     }
   }
 
@@ -171,26 +177,46 @@ int main(int argc, char** argv) {
               static_cast<double>(state.box.size().z));
 
   // Set up potential and integrator.
-  tdmd::potentials::MorsePair pot(
+  const bool use_eam = !cfg.eam_file.empty();
+
+  tdmd::potentials::MorsePair morse_pot(
       static_cast<tdmd::real>(cfg.morse_d),
       static_cast<tdmd::real>(cfg.morse_alpha),
       static_cast<tdmd::real>(cfg.morse_r0),
       static_cast<tdmd::real>(cfg.morse_rc));
+
+  tdmd::potentials::EamAlloy eam;
+  if (use_eam) {
+    eam.read_setfl(cfg.eam_file);
+  }
 
   tdmd::integrator::VelocityVerlet vv(static_cast<tdmd::real>(cfg.dt));
 
   tdmd::neighbors::NeighborList nlist;
   auto skin = static_cast<tdmd::real>(cfg.skin);
 
+  auto pot_cutoff = [&]() -> tdmd::real {
+    return use_eam ? eam.cutoff() : morse_pot.cutoff();
+  };
+  auto compute_forces_dispatch = [&]() -> tdmd::real {
+    if (use_eam) return eam.compute_forces(state, nlist);
+    return tdmd::potentials::compute_pair_forces(state, nlist, morse_pot);
+  };
+
   // Build neighbor list and compute initial forces.
   nlist.build(state.positions.data(), state.natoms, state.box,
-              pot.cutoff(), skin);
+              pot_cutoff(), skin);
 
-  tdmd::real pe = tdmd::potentials::compute_pair_forces(state, nlist, pot);
+  tdmd::real pe = compute_forces_dispatch();
   tdmd::real ke = kinetic_energy(state);
 
-  std::printf("\nMorse: D=%.4f alpha=%.4f r0=%.3f rc=%.1f\n",
-              cfg.morse_d, cfg.morse_alpha, cfg.morse_r0, cfg.morse_rc);
+  if (use_eam) {
+    std::printf("\nEAM/alloy: %s  cutoff=%.3f A\n",
+                cfg.eam_file.c_str(), static_cast<double>(eam.cutoff()));
+  } else {
+    std::printf("\nMorse: D=%.4f alpha=%.4f r0=%.3f rc=%.1f\n",
+                cfg.morse_d, cfg.morse_alpha, cfg.morse_r0, cfg.morse_rc);
+  }
   std::printf("dt=%.4f ps  nsteps=%d  skin=%.1f A\n\n",
               cfg.dt, cfg.nsteps, cfg.skin);
 
@@ -209,11 +235,11 @@ int main(int argc, char** argv) {
 
     if (nlist.needs_rebuild(state.positions.data(), state.natoms)) {
       nlist.build(state.positions.data(), state.natoms, state.box,
-                  pot.cutoff(), skin);
+                  pot_cutoff(), skin);
       ++rebuilds;
     }
 
-    pe = tdmd::potentials::compute_pair_forces(state, nlist, pot);
+    pe = compute_forces_dispatch();
     vv.half_kick(state);
 
     if (cfg.thermo_every > 0 && (step + 1) % cfg.thermo_every == 0) {

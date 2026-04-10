@@ -105,6 +105,45 @@ storage types, or `DeviceBuffer` element types ends with a grep, and
 that grep result goes into the user-facing report. Documents are
 treated as intent, code as fact.
 
+### Session VL — VerifyLab expansion (in progress, 2026-04-10)
+
+5-session plan to take VerifyLab from one-stub to a physics-validation
+suite that gates every PR. VL-1 and VL-2 done; VL-3, VL-4, VL-5 remain.
+
+- **VL-1 ✅ — `two-atoms-morse` wired end-to-end.** Runs
+  `tdmd_standalone --nsteps 0 --dump-forces` on a 2-atom input, parses
+  the dump + step-0 thermo line, compares against analytic Morse
+  reference in `reference/analytic.json`. Added `--dump-forces` flag
+  and `write_lammps_force_dump()` to `tdmd_main.cpp`; bumped thermo
+  print to 14 fractional digits so fp64 assertions have headroom.
+  Found and fixed a sign bug in the committed `analytic.json` (atom 1
+  at origin is pulled in +x toward atom 2, not -x) — VerifyLab's first
+  real catch was in its own reference. Residuals on 2026-04-10: fp64
+  hits machine epsilon (~0, 14+ digits); mixed sits at ~1.5e-8 PE,
+  ~3e-8 force (bounded by float32 force path per ADR 0007).
+  `scripts/run-verifylab.sh` rewritten to accept `--mode {mixed,fp64}`.
+- **VL-2 ✅ — `run0-force-match` wired end-to-end.** 256-atom Cu FCC,
+  Morse *and* EAM/alloy, compared atom-by-atom against committed
+  LAMMPS `run 0` reference dumps. Added `--eam <setfl>` flag to
+  `tdmd_standalone` (mutually exclusive with `--morse`, dispatched via
+  lambdas `pot_cutoff()` / `compute_forces_dispatch()`). `check.py`
+  runs TDMD once per potential, parses both reference dumps, compares
+  by **absolute** max-component diff (relative is meaningless when the
+  reference is ~1e-15 machine zero on a perfect lattice). Residuals on
+  2026-04-10: fp64 Morse ~2.3e-15, fp64 EAM ~9.1e-16 (both hit machine
+  epsilon — TDMD and LAMMPS agree to zero when both run in double);
+  mixed Morse ~5.0e-6, mixed EAM ~2.7e-6. All 2 VerifyLab cases PASS
+  in both modes; unit tests 73/73 green in both builds.
+- **VL-3 ⏳ — `nve-drift` long run.** ~4k-atom Cu FCC, 50k NVE steps,
+  assert `|dE/E|` bound. Slow suite (nightly).
+- **VL-4 ⏳ — cross-precision A/B.** Same input run in both
+  `build-mixed/` and `build-fp64/`, trajectories compared against each
+  other (not against LAMMPS). Answers "how fast do mixed and fp64
+  diverge under NVE?".
+- **VL-5 ⏳ — CI wiring.** `./scripts/run-verifylab.sh --suite fast`
+  as a required check on PRs. Fast suite runs every PR; slow suite
+  nightly.
+
 ### Backlog after Phase 3
 
 - **Phase Б (deferred):** PBC outside force kernel + image counter. ~7%
