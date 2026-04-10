@@ -1,6 +1,6 @@
 # Current milestone status
 
-> **Last updated:** 2026-04-10 (post session VL-EXT)
+> **Last updated:** 2026-04-11 (post session OPT)
 
 ## Phase 3 series — COMPLETE (closed in session 3B.closing, hardened in session 3D)
 
@@ -484,6 +484,74 @@ guarantees.
 
 - **VL-6/7/8** (LAMMPS A/B in CI): blocked on LAMMPS in CI image.
 - **VL-12** (deterministic velocity init): blocked on `velocity create`.
+
+### Session OPT — optimization pass over Phase 3 (2026-04-11)
+
+Follow-on perf session after Phase 3 closure. Scouted three OPT items,
+shipped one cleanly, invalidated one before implementation, and
+scoped one down to an API-only slice after discovering the original
+framing was wrong. Full numbers and reasoning live in
+[`docs/05-benchmarks/opt-session-results.md`](../05-benchmarks/opt-session-results.md).
+
+**OPT-1 — GPU-resident nlist prefix sum via CUB (shipped):**
+
+`DeviceNeighborList::build()` no longer does `D2H counts → CPU scan →
+H2D offsets`. The path is now `cub::DeviceScan::ExclusiveSum +
+cub::DeviceReduce::Max + pack_meta_kernel + one 8-byte D2H`, all on
+the caller's stream. Persistent CUB temp/meta scratch buffers on the
+`DeviceNeighborList` object so temp-storage allocation is paid once
+per lifetime. Benchmark deltas (median of 3, `FastPipelineScheduler`,
+mixed preset, RTX 5080):
+
+| System | before | after | Δ      |
+|--------|-------:|------:|-------:|
+| tiny   | 10 005 | 9 981 | −0.2 % |
+| small  |  5 964 | 5 950 | −0.2 % |
+| medium |  4 026 | 4 070 | +1.1 % |
+
+Smaller than the +5–15 % scout estimate because the two host syncs in
+the old path weren't on the scheduler's critical path (in-stream
+serialization already hid them) and CUB launch overhead eats most of
+the PCIe savings. Architectural value remains: zero PCIe traffic per
+rebuild, last host round-trip removed from scheduler hot path,
+unblocks future grow-on-overflow and pair-list-form changes. Commit
+`b669f7f`. 85/85 green on both presets.
+
+**OPT-2 — reframed to API slice only:**
+
+Original plan was "migrate EAM to FastPipelineScheduler". Scoping work
+revealed EAM has no production path at all — no benchmark driver, no
+scheduler wiring, unit-test-only. That makes the full port a feature
+slot, not an optimization: there is no existing EAM-in-loop baseline
+to measure a speedup against. Shipped the small piece that is useful
+regardless of scheduling — `cudaStream_t stream = 0` parameter on
+`DeviceEam::compute`, routed through all four internal kernel launches
+(density / embedding / force / sum_per_atom) plus inline
+`cudaMemsetAsync` for the two scratch zeroes (the buffer helper used
+synchronous default-stream memset, which would race against non-
+default-stream kernels). Commit `84168b3`. Default stream value keeps
+every existing EAM unit test behaviourally identical. No throughput
+delta claimed or measured. 85/85 green on both presets.
+
+Full enablement (scheduler dispatch, `--potential eam --eam <setfl>`
+CLI, LAMMPS A/B) is filed as **FEAT-EAM-Production-Pipeline** for a
+future M2/M3 feature slot.
+
+**OPT-3 — invalidated before implementation:**
+
+Scouted as "hoist PBC branches out of the force kernel" for ~+7 %.
+Closer reading showed the premise was wrong: drift already wraps
+positions, and the force-kernel PBC branches compute the minimum-image
+convention on relative vectors — structurally required. Dropped. No
+commit.
+
+**Session net:** one modest-but-real perf win (OPT-1, +1.1 % on
+medium), one small API improvement unblocking future async EAM work,
+and the architectural cleanup of removing the last host sync from the
+nlist rebuild path. The single-GPU optimization ceiling at ≤32 K atoms
+is narrower than pre-session estimates suggested; remaining wins are
+either structural (multi-GPU, kernel fusion) or require touching
+cell-list / neighbor-list storage format.
 
 ### Session VL closed
 

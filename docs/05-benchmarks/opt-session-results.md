@@ -81,3 +81,55 @@ throughput:
 Correctness: `ctest --preset mixed` → 85/85 passed (4 deterministic-mode
 tests correctly skipped). `ctest --preset fp64` → same. Neighbor-list
 specific tests (`DeviceNeighborList.*`, `DeviceCellList.*`) all green.
+
+## OPT-2 — reframed, not shipped as a perf win
+
+OPT-2 was originally scoped as "migrate EAM to FastPipelineScheduler"
+under the assumption there was an existing EAM-in-loop baseline to
+measure a speedup against. When implementation started it became clear
+that EAM has **no production path today** — no benchmark driver, no
+scheduler wiring, EAM runs only from unit tests. Making EAM work
+through FastPipelineScheduler is a feature port (~1–1.5 days: scheduler
+dispatch, `--potential eam --eam <setfl>` CLI, unit test, LAMMPS A/B),
+not an optimization. Without an existing baseline there is no honest
+"X% faster" number to report — it would be pure feature enablement
+dressed up as a perf session deliverable.
+
+Decision: ship only the small clean piece that is unambiguously useful
+regardless of scheduling — thread `cudaStream_t` through
+`DeviceEam::compute` so a future caller can share a stream and so the
+two scratch zeroes inside compute() run async on that stream instead of
+racing via the default-stream `cudaMemset`. The full feature port is
+filed as **FEAT-EAM-Production-Pipeline** and belongs in a proper
+M2/M3 feature slot, not a perf session.
+
+Commit: `potentials(eam): thread cudaStream_t through DeviceEam::compute`.
+No measurable throughput delta expected or claimed. 85/85 tests green on
+both mixed and fp64 presets after the change.
+
+## OPT-3 — ruled out during scoping
+
+Originally scouted as "hoist PBC branches out of the force kernel" for
+an estimated +7 %. Closer reading showed the premise was wrong: drift
+already wraps positions into the box (`device_velocity_verlet.cu`),
+and the PBC branches inside the force kernel compute the *minimum-image
+convention* on relative vectors — structurally required, not
+redundant. Dropped before any code was written. No commit.
+
+## Session net
+
+- **OPT-1 shipped**: GPU-resident nlist prefix sum via CUB. +1.1 % on
+  medium, noise on tiny/small, zero PCIe round-trip per rebuild,
+  scheduler hot path sync-free end-to-end.
+- **OPT-2 scoped down**: `DeviceEam::compute` stream parameter only;
+  full EAM enablement deferred to a feature milestone.
+- **OPT-3 invalidated**: dropped before implementation.
+
+The honest headline is: this session produced one small positive
+throughput delta (+1.1 % on medium) and one small API improvement that
+unblocks future async EAM work, plus the architectural cleanup of
+removing the last host sync from the nlist rebuild path. The
+optimization ceiling on a single-GPU Morse workload at ≤32 K atoms is
+narrower than the pre-session estimates suggested, and the remaining
+wins are either structural (multi-GPU, kernel fusion) or require
+changes that touch the cell-list / neighbor-list storage format.
