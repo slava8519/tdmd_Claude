@@ -129,10 +129,79 @@ TEST(DeviceCellList, MatchesCPUCellList) {
 // scatter must be ID-ordered, not atomic-race-ordered). The default OFF build
 // allows ties to fall either way, so this test only enforces the contract in
 // the deterministic mode.
+//
+// Additionally, the deterministic ordering must match "atoms-in-each-cell
+// appear in ascending atom-ID order" — that is the canonical ordering ADR 0010
+// chose so the ordering is defined by the input alone, not by the scheduler.
 TEST(DeviceCellListDeterminism, TwoBuildsBitIdentical) {
   if constexpr (!kDeterministicReduce) {
     GTEST_SKIP() << "enable -DTDMD_DETERMINISTIC_REDUCE=ON to run";
   }
-  // TODO(rd-3b): populate once scatter_kernel uses ID-ordered placement.
-  GTEST_SKIP() << "pending RD-3b implementation";
+
+  // Pack 2048 atoms into a box small enough that many atoms land in the
+  // same cell (cell size ~= r_list = 3.5 A, box = 14 A ⇒ 4^3 = 64 cells,
+  // average 32 atoms per cell — lots of ties for the scatter to break).
+  constexpr i64 N = 2048;
+  Box box;
+  box.lo = {0, 0, 0};
+  box.hi = {14, 14, 14};
+  box.periodic = {true, true, true};
+
+  std::vector<PositionVec> h_pos(static_cast<std::size_t>(N));
+  // Deterministic pseudo-random placement (fixed LCG seed so the test is
+  // reproducible regardless of the host RNG).
+  std::uint64_t s = 0x9E3779B97F4A7C15ULL;
+  auto rand01 = [&]() {
+    s = s * 6364136223846793005ULL + 1442695040888963407ULL;
+    return static_cast<double>(s >> 11) / static_cast<double>(1ULL << 53);
+  };
+  for (i64 i = 0; i < N; ++i) {
+    h_pos[static_cast<std::size_t>(i)] = {
+        rand01() * 14.0, rand01() * 14.0, rand01() * 14.0};
+  }
+
+  DeviceBuffer<PositionVec> d_pos(static_cast<std::size_t>(N));
+  d_pos.copy_from_host(h_pos.data(), static_cast<std::size_t>(N));
+
+  auto snapshot = [&](const domain::DeviceCellList& cl) {
+    i32 nc = cl.ncells_total();
+    std::vector<i32> atoms(static_cast<std::size_t>(N));
+    std::vector<i32> offsets(static_cast<std::size_t>(nc));
+    std::vector<i32> counts(static_cast<std::size_t>(nc));
+    TDMD_CUDA_CHECK(cudaMemcpy(atoms.data(), cl.d_cell_atoms(),
+                               static_cast<std::size_t>(N) * sizeof(i32),
+                               cudaMemcpyDeviceToHost));
+    TDMD_CUDA_CHECK(cudaMemcpy(offsets.data(), cl.d_cell_offsets(),
+                               static_cast<std::size_t>(nc) * sizeof(i32),
+                               cudaMemcpyDeviceToHost));
+    TDMD_CUDA_CHECK(cudaMemcpy(counts.data(), cl.d_cell_counts(),
+                               static_cast<std::size_t>(nc) * sizeof(i32),
+                               cudaMemcpyDeviceToHost));
+    return std::make_tuple(atoms, offsets, counts);
+  };
+
+  domain::DeviceCellList cl1;
+  cl1.build(d_pos.data(), N, box, real{3.5});
+  auto [atoms1, offsets1, counts1] = snapshot(cl1);
+
+  domain::DeviceCellList cl2;
+  cl2.build(d_pos.data(), N, box, real{3.5});
+  auto [atoms2, offsets2, counts2] = snapshot(cl2);
+
+  // Bit-identical between two builds.
+  ASSERT_EQ(atoms1, atoms2);
+  ASSERT_EQ(offsets1, offsets2);
+  ASSERT_EQ(counts1, counts2);
+
+  // And the canonical ordering: within each cell, atom IDs ascend.
+  i32 ncells = cl1.ncells_total();
+  for (i32 c = 0; c < ncells; ++c) {
+    i32 off = offsets1[static_cast<std::size_t>(c)];
+    i32 cnt = counts1[static_cast<std::size_t>(c)];
+    for (i32 k = 1; k < cnt; ++k) {
+      EXPECT_LT(atoms1[static_cast<std::size_t>(off + k - 1)],
+                atoms1[static_cast<std::size_t>(off + k)])
+          << "cell " << c << " slot " << k << " not in ascending atom-ID order";
+    }
+  }
 }

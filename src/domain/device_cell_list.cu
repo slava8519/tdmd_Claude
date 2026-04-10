@@ -7,6 +7,7 @@
 #include <cmath>
 #include <vector>
 
+#include "../core/determinism.hpp"
 #include "../core/device_buffer.cuh"
 #include "../core/error.hpp"
 
@@ -110,15 +111,42 @@ void DeviceCellList::build(const PositionVec* d_positions, i64 natoms,
   cell_offsets_.copy_from_host(h_offsets.data(), ucells);
 
   // Step 3: scatter atoms into sorted order.
-  // Use a temporary "placed" counter (same as cell_counts but zeroed).
-  DeviceBuffer<i32> cell_placed(ucells);
-  cell_placed.zero();
+  if constexpr (kDeterministicReduce) {
+    // Deterministic path (ADR 0010): place atoms in strict ID order.
+    // The default GPU path uses atomicAdd on a per-cell slot counter, so
+    // two atoms in the same cell can land in either order depending on
+    // warp scheduling. That ordering propagates into the neighbor-list
+    // walk and ultimately into float atomicAdds in the force kernels,
+    // which is exactly the non-reproducibility we want to eliminate here.
+    // We shuttle atom_cells_ through host memory and do the scatter
+    // sequentially. Cell-list build runs every ~10 MD steps and is not
+    // the hot path, so a 2 * N-int PCIe round trip is acceptable; the
+    // force kernel path is unaffected.
+    std::vector<i32> h_atom_cells(un);
+    std::vector<i32> h_cell_atoms(un);
+    atom_cells_.copy_to_host(h_atom_cells.data(), un);
+    std::vector<i32> h_placed(ucells, 0);
+    for (i64 i = 0; i < natoms; ++i) {
+      i32 cell_id = h_atom_cells[static_cast<std::size_t>(i)];
+      i32 slot = h_offsets[static_cast<std::size_t>(cell_id)] +
+                 h_placed[static_cast<std::size_t>(cell_id)]++;
+      h_cell_atoms[static_cast<std::size_t>(slot)] = static_cast<i32>(i);
+    }
+    cell_atoms_.copy_from_host(h_cell_atoms.data(), un);
+    TDMD_CUDA_CHECK(cudaDeviceSynchronize());
+  } else {
+    // Fast default path: atomicAdd slot reservation. Non-deterministic
+    // under warp scheduling ties, but ~2 orders of magnitude faster than
+    // the host round trip above.
+    DeviceBuffer<i32> cell_placed(ucells);
+    cell_placed.zero();
 
-  scatter_kernel<<<grid, kBlock>>>(atom_cells_.data(), cell_offsets_.data(),
-                                   cell_placed.data(), cell_atoms_.data(),
-                                   static_cast<i32>(natoms));
-  TDMD_CUDA_CHECK(cudaGetLastError());
-  TDMD_CUDA_CHECK(cudaDeviceSynchronize());
+    scatter_kernel<<<grid, kBlock>>>(atom_cells_.data(), cell_offsets_.data(),
+                                     cell_placed.data(), cell_atoms_.data(),
+                                     static_cast<i32>(natoms));
+    TDMD_CUDA_CHECK(cudaGetLastError());
+    TDMD_CUDA_CHECK(cudaDeviceSynchronize());
+  }
 }
 
 }  // namespace tdmd::domain
