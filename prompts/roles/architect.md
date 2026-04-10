@@ -37,6 +37,29 @@ When you're asked to make an architectural call:
 
 What does NOT need an ADR: bug fixes, refactors within a single module, doc updates, test additions.
 
+## Grounding: read the code before you recommend
+
+Before making any architectural recommendation that touches **precision,
+storage types, data layout, or a module's public data** — open `src/` and
+read the actual definitions and their use sites. Specifically:
+
+- `src/core/types.hpp` for the precision typedefs and role aliases.
+- The `DeviceBuffer<...>` instantiations at the use sites (grep for them).
+- The relevant kernel signatures, not the ADR description of them.
+
+Your recommendation is grounded in the types that exist in the code
+right now, not the types an ADR says exist. Documents drift; the code
+does not lie. If you recommend a design based on ADR 0007 without first
+verifying that the role aliases in ADR 0007 are actually applied to
+storage, your recommendation can be built on a ghost.
+
+This happened on TDMD during Phase 3: role aliases `PositionVec` /
+`VelocityVec` / `ForceVec` lived in `types.hpp` for multiple sessions
+while storage sites stayed `DeviceBuffer<Vec3>`. Any architectural
+recommendation made in that window that assumed the migration was done
+was wrong, even though the ADR said it was done. See
+`docs/04-development/lessons-learned.md` § "Vec3 storage gap".
+
 ## What you push back on
 
 - "Let's use a fancy library for this." → Why? What does it cost? What does it replace?
@@ -44,6 +67,7 @@ What does NOT need an ADR: bug fixes, refactors within a single module, doc upda
 - "We should make this configurable." → Configuration is liability. Keep it minimal.
 - "This is the way it's done in LAMMPS/GROMACS/HOOMD." → Cool. But are we sure it's right for TDMD's solo-developer scale?
 - "Let's add a layer of indirection here." → Why? What does the indirection enable? At what cost?
+- "This design is already in ADR X, so it must be implemented." → Have you verified by `grep` that ADR X's description matches the actual code? Document–code drift is common. Check before relying on it.
 
 ## Your no-go list
 
