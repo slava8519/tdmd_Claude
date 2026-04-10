@@ -3,6 +3,9 @@
 
 #include "device_neighbor_list.cuh"
 
+#include <cub/device/device_reduce.cuh>
+#include <cub/device/device_scan.cuh>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -135,6 +138,21 @@ __global__ void build_nlist_kernel(
   d_counts[i] = count;
 }
 
+/// @brief Tiny helper kernel: pack total_pairs and max_neighbors into one
+/// 2-element buffer for a single coalesced D2H copy.
+///
+/// total_pairs = d_offsets[n-1] + d_counts[n-1] (exclusive-scan identity).
+/// d_max is already written by cub::DeviceReduce::Max. We just gather both
+/// into d_meta[0], d_meta[1] so the host only needs one cudaMemcpyAsync.
+__global__ void pack_meta_kernel(const i32* __restrict__ d_offsets,
+                                 const i32* __restrict__ d_counts,
+                                 const i32* __restrict__ d_max, i32 n,
+                                 i32* __restrict__ d_meta) {
+  if (threadIdx.x != 0 || blockIdx.x != 0) return;
+  d_meta[0] = d_offsets[n - 1] + d_counts[n - 1];  // total_pairs
+  d_meta[1] = *d_max;                              // max_neighbors
+}
+
 }  // namespace
 
 void DeviceNeighborList::build(const PositionVec* d_positions, i64 natoms,
@@ -154,9 +172,10 @@ void DeviceNeighborList::build(const PositionVec* d_positions, i64 natoms,
   // Build cell list.
   cell_list_.build(d_positions, natoms, box, r_list);
 
-  // Allocate counts.
+  // Allocate counts + offsets.
   counts_.resize(un);
   counts_.zero();
+  offsets_.resize(un);
 
   Vec3D box_size = box.size();
 
@@ -171,36 +190,73 @@ void DeviceNeighborList::build(const PositionVec* d_positions, i64 natoms,
       box.lo, box_size, box.periodic[0], box.periodic[1], box.periodic[2],
       r_list_sq, counts_.data(), nullptr, nullptr, 0, nullptr);
   TDMD_CUDA_CHECK(cudaGetLastError());
+
+  // --- Device-resident prefix sum (replaces host D2H + CPU scan + H2D) ---
+  //
+  // OPT-1 (ADR 0005 follow-up): the old implementation did
+  //   D2H counts → CPU prefix sum → H2D offsets
+  // with two cudaStreamSynchronize calls, ~4*N bytes of PCIe traffic, and
+  // serialised the entire scheduler. We now chain three CUB device primitives
+  // on `stream`:
+  //   1. cub::DeviceScan::ExclusiveSum(counts → offsets)
+  //   2. cub::DeviceReduce::Max(counts → d_max_scalar)
+  //   3. pack_meta_kernel(offsets[n-1] + counts[n-1], d_max → d_meta[0..1])
+  // and finish with a single 8-byte D2H. One sync, bandwidth ~negligible,
+  // the entire prefix sum stays on the GPU.
+
+  d_meta_.resize(2);
+  d_max_scalar_.resize(1);
+
+  // Query + grow scan temp storage.
+  std::size_t scan_bytes = 0;
+  cub::DeviceScan::ExclusiveSum(nullptr, scan_bytes, counts_.data(),
+                                offsets_.data(), static_cast<int>(natoms),
+                                stream);
+
+  // Query + grow reduce-max temp storage. CUB requires separate temp buffers
+  // for DeviceScan and DeviceReduce — sharing is not supported.
+  std::size_t reduce_bytes = 0;
+  cub::DeviceReduce::Max(nullptr, reduce_bytes, counts_.data(),
+                         d_max_scalar_.data(), static_cast<int>(natoms),
+                         stream);
+
+  // Keep a single byte buffer sized to the larger of the two. Callers rebuild
+  // with the same natoms over and over, so the grow is amortised to zero
+  // after the first build.
+  std::size_t needed = std::max(scan_bytes, reduce_bytes);
+  if (d_cub_temp_.size() < needed) {
+    d_cub_temp_.resize(needed);
+  }
+
+  cub::DeviceScan::ExclusiveSum(d_cub_temp_.data(), scan_bytes, counts_.data(),
+                                offsets_.data(), static_cast<int>(natoms),
+                                stream);
+
+  cub::DeviceReduce::Max(d_cub_temp_.data(), reduce_bytes, counts_.data(),
+                         d_max_scalar_.data(), static_cast<int>(natoms),
+                         stream);
+
+  pack_meta_kernel<<<1, 1, 0, stream>>>(offsets_.data(), counts_.data(),
+                                        d_max_scalar_.data(),
+                                        static_cast<i32>(natoms),
+                                        d_meta_.data());
+  TDMD_CUDA_CHECK(cudaGetLastError());
+
+  // One 8-byte D2H, then sync. This is the only host round-trip in build().
+  i32 h_meta[2] = {0, 0};
+  TDMD_CUDA_CHECK(cudaMemcpyAsync(h_meta, d_meta_.data(), sizeof(h_meta),
+                                  cudaMemcpyDeviceToHost, stream));
   TDMD_CUDA_CHECK(cudaStreamSynchronize(stream));
 
-  // Download counts, compute offsets on host (prefix sum).
-  std::vector<i32> h_counts(un);
-  counts_.copy_to_host(h_counts.data(), un);
-
-  std::vector<i32> h_offsets(un);
-  h_offsets[0] = 0;
-  for (std::size_t a = 1; a < un; ++a) {
-    h_offsets[a] = h_offsets[a - 1] + h_counts[a - 1];
-  }
-  i32 total_pairs = h_offsets[un - 1] + h_counts[un - 1];
-
-  // Find max neighbors for overflow check.
-  i32 max_nbrs = 0;
-  for (auto c : h_counts) {
-    if (c > max_nbrs) max_nbrs = c;
-  }
-  max_neighbors_ = max_nbrs;
-
-  // Upload offsets.
-  offsets_.resize(un);
-  offsets_.copy_from_host(h_offsets.data(), un);
+  i32 total_pairs = h_meta[0];
+  max_neighbors_ = h_meta[1];
 
   // Allocate neighbor storage.
   if (total_pairs > 0) {
     neighbors_.resize(static_cast<std::size_t>(total_pairs));
   }
 
-  // Reset counts for pass 2.
+  // Reset counts for pass 2 (the kernel re-counts as it writes).
   counts_.zero();
 
   // Overflow flag (device).
@@ -216,7 +272,9 @@ void DeviceNeighborList::build(const PositionVec* d_positions, i64 natoms,
       r_list_sq, counts_.data(), neighbors_.data(), offsets_.data(),
       max_neighbors_, d_overflow.data());
   TDMD_CUDA_CHECK(cudaGetLastError());
-  TDMD_CUDA_CHECK(cudaStreamSynchronize(stream));
+  // NOTE: no stream sync here. The caller is expected to sync the stream
+  // before reading any nlist data on the host (which, in the scheduler hot
+  // path, happens only at run_until() end).
 }
 
 }  // namespace tdmd::neighbors

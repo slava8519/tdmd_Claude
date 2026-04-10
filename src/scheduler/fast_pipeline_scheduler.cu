@@ -79,8 +79,9 @@ void FastPipelineScheduler::step() {
   ++stats_.kernel_launches;
 
   // Neighbor list rebuild (amortized, every rebuild_every steps).
-  // Contains internal sync — this is unavoidable for the two-pass host
-  // prefix sum, but happens only every rebuild_every steps.
+  // OPT-1: prefix sum now runs on the device via CUB; build() still performs
+  // one 8-byte D2H for total_pairs + max_neighbors, so there is a single
+  // tiny stream sync inside it — down from two N-sized round trips.
   maybe_rebuild_nlist();
 
   // Phase 4: force compute (whole-system batched kernel).

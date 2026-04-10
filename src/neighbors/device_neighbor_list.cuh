@@ -4,6 +4,8 @@
 
 #include <cuda_runtime.h>
 
+#include <cstdint>
+
 #include "../core/box.hpp"
 #include "../core/device_buffer.cuh"
 #include "../core/types.hpp"
@@ -52,6 +54,14 @@ class DeviceNeighborList {
   DeviceBuffer<i32> neighbors_;  // flat CSR
   DeviceBuffer<i32> counts_;     // per-atom count
   DeviceBuffer<i32> offsets_;    // per-atom offset
+
+  // OPT-1 scratch buffers for GPU-resident prefix sum (cub::DeviceScan /
+  // cub::DeviceReduce). Persistent across rebuilds so the temp-storage
+  // allocation cost is paid once per lifetime, not per build. See
+  // device_neighbor_list.cu::build() for the one-sync flow.
+  DeviceBuffer<std::uint8_t> d_cub_temp_;
+  DeviceBuffer<i32> d_max_scalar_;  // cub::DeviceReduce::Max sink
+  DeviceBuffer<i32> d_meta_;        // [total_pairs, max_neighbors] — one D2H
 };
 
 }  // namespace tdmd::neighbors
