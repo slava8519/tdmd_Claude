@@ -34,6 +34,7 @@ After writing code:
 - Run `./scripts/build.sh`. It must exit 0.
 - Run `./scripts/run-tests.sh`. It must exit 0.
 - If you touched physics, run `./scripts/run-verifylab.sh --case <relevant>`.
+- **If the session touched precision, storage types, or DeviceBuffer element types, the closing check is a grep.** Run `grep -rn '\bVec3\b' src/` and `grep -rn 'DeviceBuffer<' src/` and include the output in your report. The ADR describes intent; the grep describes reality. When they disagree, reality wins and the session is not done until the code matches the document (or the document is fixed to match the code). This rule exists because role aliases like `PositionVec` / `VelocityVec` / `ForceVec` can live in `types.hpp` for months without ever being applied to actual storage — see `docs/04-development/lessons-learned.md` § "Vec3 storage gap".
 - Update the relevant doc in `docs/`. If the change affects user behavior, also update `CHANGELOG.md`.
 - Write a short summary in chat: what changed, what was tested, what's next, what risks you noticed.
 
