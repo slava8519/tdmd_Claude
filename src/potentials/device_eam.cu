@@ -339,7 +339,8 @@ void DeviceEam::upload_tables(const EamAlloy& eam) {
 void DeviceEam::compute(const PositionVec* d_positions, ForceVec* d_forces,
                         const i32* d_types, const i32* d_neighbors,
                         const i32* d_offsets, const i32* d_counts,
-                        i32 natoms, const Box& box, accum_t* d_energy) {
+                        i32 natoms, const Box& box, accum_t* d_energy,
+                        cudaStream_t stream) {
   if (natoms == 0) return;
 
   Vec3D box_size = box.size();
@@ -362,39 +363,45 @@ void DeviceEam::compute(const PositionVec* d_positions, ForceVec* d_forces,
   if constexpr (kDeterministicReduce) {
     if (d_energy) {
       d_e_per_atom.resize(un);
-      d_e_per_atom.zero();
+      TDMD_CUDA_CHECK(cudaMemsetAsync(d_e_per_atom.data(), 0,
+                                      un * sizeof(accum_t), stream));
       d_e_per_atom_ptr = d_e_per_atom.data();
     }
   }
 
-  // Pass 1: density gather.
-  d_rho_.zero();
-  eam_density_kernel<<<grid, kBlock>>>(
+  // Pass 1: density gather. Zero d_rho_ on the caller's stream (not via
+  // DeviceBuffer::zero() which uses synchronous cudaMemset on the default
+  // stream and would race with kernels queued on `stream`).
+  TDMD_CUDA_CHECK(
+      cudaMemsetAsync(d_rho_.data(), 0, un * sizeof(accum_t), stream));
+  eam_density_kernel<<<grid, kBlock, 0, stream>>>(
       d_positions, d_types, d_neighbors, d_offsets, d_counts, natoms, box.lo,
       box_size, box.periodic[0], box.periodic[1], box.periodic[2], rc_sq,
       d_density_meta_.data(), d_coeff_.data(), d_rho_.data());
   TDMD_CUDA_CHECK(cudaGetLastError());
 
   // Pass 2: embedding (writes R5 energy contribution per atom).
-  eam_embedding_kernel<<<grid, kBlock>>>(
+  eam_embedding_kernel<<<grid, kBlock, 0, stream>>>(
       d_types, natoms, d_embedding_meta_.data(), d_coeff_.data(),
       d_rho_.data(), d_fp_.data(), d_energy, d_e_per_atom_ptr);
   TDMD_CUDA_CHECK(cudaGetLastError());
 
   if constexpr (kDeterministicReduce) {
     if (d_energy) {
-      eam_sum_per_atom_kernel<<<1, 1>>>(d_e_per_atom_ptr, natoms, d_energy);
+      eam_sum_per_atom_kernel<<<1, 1, 0, stream>>>(d_e_per_atom_ptr, natoms,
+                                                   d_energy);
       TDMD_CUDA_CHECK(cudaGetLastError());
       // Scratch is about to be reused by the force kernel — zero it so any
       // atoms skipped by the force kernel contribute 0, not stale embedding
       // values. (Currently every thread writes, but zeroing is cheap and
       // defends against a future early-exit path.)
-      d_e_per_atom.zero();
+      TDMD_CUDA_CHECK(cudaMemsetAsync(d_e_per_atom_ptr, 0,
+                                      un * sizeof(accum_t), stream));
     }
   }
 
   // Pass 3: forces (writes R6 energy contribution per atom).
-  eam_force_kernel<<<grid, kBlock>>>(
+  eam_force_kernel<<<grid, kBlock, 0, stream>>>(
       d_positions, d_forces, d_types, d_neighbors, d_offsets, d_counts, natoms,
       ntypes_, box.lo, box_size, box.periodic[0], box.periodic[1],
       box.periodic[2], rc_sq, d_density_meta_.data(), d_phi_meta_.data(),
@@ -403,7 +410,8 @@ void DeviceEam::compute(const PositionVec* d_positions, ForceVec* d_forces,
 
   if constexpr (kDeterministicReduce) {
     if (d_energy) {
-      eam_sum_per_atom_kernel<<<1, 1>>>(d_e_per_atom_ptr, natoms, d_energy);
+      eam_sum_per_atom_kernel<<<1, 1, 0, stream>>>(d_e_per_atom_ptr, natoms,
+                                                   d_energy);
       TDMD_CUDA_CHECK(cudaGetLastError());
     }
   }

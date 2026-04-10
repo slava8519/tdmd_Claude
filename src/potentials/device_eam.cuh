@@ -2,6 +2,8 @@
 // device_eam.cuh — GPU EAM/alloy force computation (3-pass).
 #pragma once
 
+#include <cuda_runtime.h>
+
 #include "../core/box.hpp"
 #include "../core/device_buffer.cuh"
 #include "../core/types.hpp"
@@ -37,10 +39,15 @@ class DeviceEam {
   /// @param natoms       Number of atoms.
   /// @param box          Simulation box (host).
   /// @param d_energy     Optional device pointer to accumulate PE (may be nullptr).
+  /// @param stream       CUDA stream for all internal launches (default 0 =
+  ///                     legacy default stream). Threaded through so the
+  ///                     scheduler can share its single compute stream when
+  ///                     the EAM production pipeline slot lands (FEAT-EAM-
+  ///                     Production-Pipeline).
   void compute(const PositionVec* d_positions, ForceVec* d_forces,
                const i32* d_types, const i32* d_neighbors,
                const i32* d_offsets, const i32* d_counts, i32 natoms,
-               const Box& box, accum_t* d_energy);
+               const Box& box, accum_t* d_energy, cudaStream_t stream = 0);
 
   [[nodiscard]] real cutoff() const noexcept { return cutoff_; }
 
