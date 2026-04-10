@@ -225,6 +225,20 @@ exists (see `docs/04-development/ci-strategy.md`).
 - **VerifyLab stub:** `verifylab/cases/single-gpu-collapse/` README is
   drafted (3 test cases, all unimplemented). Blocked on ADR 0005 Phase 2
   zone-collapse implementation in the scheduler.
+- **ML potential test suite — deferred, blocked on ML support landing.**
+  Reference: "Comprehensive Test Suite Design" research doc, ML-specific
+  section. When ML lands, DoD of the ML milestone includes the full set:
+  - **P5:** descriptor → model → force pipeline parity vs LAMMPS ML
+    backend (`pair_style snap` / `mliap` / `kim`), `run 0` oracle.
+  - **ML1:** descriptor reproducibility CPU vs GPU — L2/RMS ≤ 1e-10
+    (double), ≤ 1e-6 (float), stable across MPI layouts.
+  - **ML2:** analytic forces vs finite-difference of energy — δ-sweep,
+    relative error band within tolerance as δ shrinks to noise floor.
+  - **ML3:** batch vs per-atom evaluation equivalence (GPU throughput
+    path must match per-atom path bitwise within reduction tolerance).
+  - **ML4:** GPU vs CPU kernel parity on medium (4k–16k atom) config.
+  This entry is a contract: no ML milestone can close without these 5
+  cases green in both `build-mixed/` and `build-fp64/`.
 
 ## Next milestone — TBD
 
