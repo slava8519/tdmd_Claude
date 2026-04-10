@@ -28,11 +28,15 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 from pathlib import Path
 
 CASE_DIR = Path(__file__).parent
 REPO_ROOT = CASE_DIR.parents[2]
+
+sys.path.insert(0, str(REPO_ROOT / "verifylab" / "runners"))
+from result_schema import emit_result  # noqa: E402
 TOL_PATH = CASE_DIR / "tolerance.toml"
 DATA_PATH = CASE_DIR / "cu_fcc_256.data"
 EAM_PATH = CASE_DIR / "Cu_mishin1.eam.alloy"
@@ -184,20 +188,24 @@ def resolve_binary(explicit: str | None, mode: str) -> Path:
 
 
 def run_one(pot: str, bin_path: Path, tol: dict, mode: str,
-            lammps_dump: Path) -> list[str]:
-    """Run TDMD for one potential and compare against LAMMPS reference."""
+            lammps_dump: Path) -> tuple[list[str], float]:
+    """Run TDMD for one potential and compare against LAMMPS reference.
+
+    Returns (failures, max_force_diff). max_force_diff is NaN if the run
+    could not complete (missing dump, TDMD crash, etc.).
+    """
     failures: list[str] = []
     print(f"\n-- {pot.upper()} --")
 
     if not lammps_dump.exists():
         failures.append(f"{pot}: LAMMPS reference dump missing: {lammps_dump}")
-        return failures
+        return failures, float("nan")
 
     try:
         thermo, tdmd_atoms = run_tdmd(bin_path, pot)
     except Exception as e:
         failures.append(f"{pot}: TDMD run failed: {e}")
-        return failures
+        return failures, float("nan")
 
     lammps_atoms = parse_lammps_dump(lammps_dump)
 
@@ -208,7 +216,7 @@ def run_one(pot: str, bin_path: Path, tol: dict, mode: str,
         worst, wid, (comp, t, l) = compare_forces(tdmd_atoms, lammps_atoms)
     except Exception as e:
         failures.append(f"{pot}: force comparison failed: {e}")
-        return failures
+        return failures, float("nan")
 
     thresh = select_thresh(tol[f"forces_{pot}"], mode)
     status = "PASS" if worst <= thresh else "FAIL"
@@ -222,7 +230,7 @@ def run_one(pot: str, bin_path: Path, tol: dict, mode: str,
             f"{pot}: max force diff {worst:.3e} > {thresh:.1e} "
             f"(atom {wid}, comp {comp})"
         )
-    return failures
+    return failures, worst
 
 
 def main() -> int:
@@ -249,15 +257,40 @@ def main() -> int:
     print(f"binary     : {bin_path}")
     print(f"input      : {DATA_PATH.name} (256 Cu atoms, perfect FCC, a=3.615 A)")
 
+    t0 = time.monotonic()
     failures: list[str] = []
-    failures += run_one("morse", bin_path, tol, args.mode, LAMMPS_MORSE_DUMP)
-    failures += run_one("eam", bin_path, tol, args.mode, LAMMPS_EAM_DUMP)
+    morse_fails, morse_worst = run_one(
+        "morse", bin_path, tol, args.mode, LAMMPS_MORSE_DUMP)
+    eam_fails, eam_worst = run_one(
+        "eam", bin_path, tol, args.mode, LAMMPS_EAM_DUMP)
+    failures += morse_fails
+    failures += eam_fails
+
+    status = "fail" if failures else "pass"
+    # If either run hit NaN (setup/crash), demote to error.
+    if (morse_worst != morse_worst) or (eam_worst != eam_worst):
+        status = "error"
+    emit_result(
+        case="run0-force-match",
+        mode=args.mode,
+        status=status,
+        metrics={
+            "max_force_diff_morse": morse_worst,
+            "max_force_diff_eam": eam_worst,
+        },
+        thresholds={
+            "max_force_diff_morse": select_thresh(tol["forces_morse"], args.mode),
+            "max_force_diff_eam": select_thresh(tol["forces_eam"], args.mode),
+        },
+        failures=failures,
+        duration_s=time.monotonic() - t0,
+    )
 
     if failures:
         print("\nFAIL:")
         for f in failures:
             print(f"  - {f}")
-        return 1
+        return 1 if status == "fail" else 2
 
     print("\nPASS: TDMD step-0 forces match LAMMPS reference within tolerance "
           "(both Morse and EAM).")

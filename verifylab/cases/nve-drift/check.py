@@ -38,8 +38,13 @@ import os
 import re
 import subprocess
 import sys
+import time
 import tomllib
 from pathlib import Path
+
+sys.path.insert(
+    0, str(Path(__file__).resolve().parents[2] / "runners"))
+from result_schema import emit_result  # noqa: E402
 
 CASE_DIR = Path(__file__).parent
 REPO_ROOT = CASE_DIR.parents[2]
@@ -169,15 +174,30 @@ def main() -> int:
     print(f"input      : {DATA_PATH.name} (4000 Cu atoms, EAM, T=100 K)")
     print(f"nsteps     : {args.nsteps}   (dt={DT_PS} ps, total={args.nsteps*DT_PS:.1f} ps)")
 
+    t0 = time.monotonic()
+    thresh = select_thresh(tol["drift"], args.mode)
+
+    def fail_emit(reason: str, exit_code: int) -> int:
+        emit_result(
+            case="nve-drift",
+            mode=args.mode,
+            status="error",
+            metrics={},
+            thresholds={"rel_drift_per_ps": thresh},
+            failures=[reason],
+            duration_s=time.monotonic() - t0,
+        )
+        return exit_code
+
     try:
         samples = run_tdmd(bin_path, args.nsteps)
     except Exception as e:
         print(f"ERROR running TDMD: {e}")
-        return 2
+        return fail_emit(f"TDMD run failed: {e}", 2)
 
     if len(samples) < 8:
         print(f"ERROR: too few thermo samples ({len(samples)}); expected >= 8")
-        return 2
+        return fail_emit(f"too few thermo samples ({len(samples)})", 2)
 
     # Discard equilibration transient.
     n_drop = max(1, int(len(samples) * EQUILIB_FRACTION))
@@ -203,10 +223,28 @@ def main() -> int:
     print(f"  slope (TE vs t)      : {slope:+.3e} eV/ps")
     print(f"  |slope| / |mean TE|  : {rel_drift:.3e} /ps")
 
-    thresh = select_thresh(tol["drift"], args.mode)
     print(f"  threshold            : {thresh:.1e} /ps")
 
+    failures: list[str] = []
     if rel_drift > thresh:
+        failures.append(
+            f"relative drift {rel_drift:.3e} /ps > {thresh:.1e} /ps")
+
+    emit_result(
+        case="nve-drift",
+        mode=args.mode,
+        status="fail" if failures else "pass",
+        metrics={
+            "rel_drift_per_ps": rel_drift,
+            "te_fluct_abs": fluct,
+            "mean_te": mean_te,
+        },
+        thresholds={"rel_drift_per_ps": thresh},
+        failures=failures,
+        duration_s=time.monotonic() - t0,
+    )
+
+    if failures:
         print(f"\nFAIL: relative drift {rel_drift:.3e} /ps > {thresh:.1e} /ps")
         return 1
 

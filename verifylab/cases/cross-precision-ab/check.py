@@ -36,11 +36,15 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 from pathlib import Path
 
 CASE_DIR = Path(__file__).parent
 REPO_ROOT = CASE_DIR.parents[2]
+
+sys.path.insert(0, str(REPO_ROOT / "verifylab" / "runners"))
+from result_schema import emit_result  # noqa: E402
 TOL_PATH = CASE_DIR / "tolerance.toml"
 # Reuse the 4000-atom Cu FCC + thermal velocities from nve-drift.
 DATA_PATH = (REPO_ROOT / "verifylab" / "cases" / "nve-drift"
@@ -196,6 +200,11 @@ def main() -> int:
     print(f"input        : {DATA_PATH.name}")
     print(f"nsteps       : {args.nsteps}  (dt={DT_PS} ps, total={args.nsteps*DT_PS:.3f} ps)")
 
+    t0 = time.monotonic()
+    pos_thresh = float(tol["position"]["threshold"])
+    force_thresh = float(tol["force"]["threshold"])
+    te_thresh = float(tol["energy"]["threshold_rel"])
+
     with tempfile.TemporaryDirectory() as tmpdir:
         dump_mixed = Path(tmpdir) / "final_mixed.dump"
         dump_fp64 = Path(tmpdir) / "final_fp64.dump"
@@ -205,6 +214,19 @@ def main() -> int:
             thermo_fp64 = run_tdmd(bin_fp64, args.nsteps, dump_fp64)
         except Exception as e:
             print(f"ERROR running TDMD: {e}")
+            emit_result(
+                case="cross-precision-ab",
+                mode="mixed+fp64",
+                status="error",
+                metrics={},
+                thresholds={
+                    "max_dpos": pos_thresh,
+                    "max_dforce": force_thresh,
+                    "rel_dte": te_thresh,
+                },
+                failures=[f"TDMD run failed: {e}"],
+                duration_s=time.monotonic() - t0,
+            )
             return 2
 
         atoms_mixed = parse_lammps_dump(dump_mixed)
@@ -222,10 +244,6 @@ def main() -> int:
     print(f"  max |dF_i|   = {worst_force:.3e} eV/A  (atom {force_id})")
 
     failures: list[str] = []
-
-    pos_thresh = float(tol["position"]["threshold"])
-    force_thresh = float(tol["force"]["threshold"])
-    te_thresh = float(tol["energy"]["threshold_rel"])
 
     print(f"\nthresholds:")
     print(f"  position  : {pos_thresh:.1e} A")
@@ -245,6 +263,24 @@ def main() -> int:
     rel_te = abs(thermo_mixed['te'] - thermo_fp64['te']) / abs(thermo_fp64['te'])
     if rel_te > te_thresh:
         failures.append(f"energy: |dTE|/|TE| {rel_te:.3e} > {te_thresh:.1e}")
+
+    emit_result(
+        case="cross-precision-ab",
+        mode="mixed+fp64",
+        status="fail" if failures else "pass",
+        metrics={
+            "max_dpos": worst_pos,
+            "max_dforce": worst_force,
+            "rel_dte": rel_te,
+        },
+        thresholds={
+            "max_dpos": pos_thresh,
+            "max_dforce": force_thresh,
+            "rel_dte": te_thresh,
+        },
+        failures=failures,
+        duration_s=time.monotonic() - t0,
+    )
 
     if failures:
         print("\nFAIL:")

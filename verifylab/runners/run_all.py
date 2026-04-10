@@ -18,6 +18,8 @@ import sys
 import tomllib
 from pathlib import Path
 
+from result_schema import parse_result_line
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CASES_DIR = REPO_ROOT / "verifylab" / "cases"
 
@@ -39,7 +41,13 @@ def case_is_slow(case_dir: Path) -> bool:
     return bool(tol.get("case", {}).get("slow", False))
 
 
-def run_case(case_dir: Path) -> tuple[bool, str]:
+def run_case(case_dir: Path) -> tuple[bool, str, dict | None]:
+    """Run one case's check.py.
+
+    Returns (ok, combined_output, result_record). The result record is
+    scraped from any `VL_RESULT: {...}` line the check.py printed; None
+    if the check predates the VL-14 migration or crashed before emitting.
+    """
     check = case_dir / "check.py"
     try:
         result = subprocess.run(
@@ -51,17 +59,30 @@ def run_case(case_dir: Path) -> tuple[bool, str]:
         )
         ok = result.returncode == 0
         out = result.stdout + ("\n" + result.stderr if result.stderr else "")
-        return ok, out
     except subprocess.TimeoutExpired:
-        return False, f"TIMEOUT after 600s"
+        return False, "TIMEOUT after 600s", None
     except Exception as e:
-        return False, f"ERROR: {e}"
+        return False, f"ERROR: {e}", None
+
+    # Scrape the most recent VL_RESULT record from stdout.
+    record = None
+    for line in out.splitlines():
+        parsed = parse_result_line(line.strip())
+        if parsed is not None:
+            record = parsed
+    return ok, out, record
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--case", help="Run a single case by name")
     ap.add_argument("--suite", choices=["fast", "slow", "all"], default="all")
+    ap.add_argument(
+        "--jsonl",
+        help="Write one VL_RESULT record per case to this JSONL file "
+             "(overwrites existing). Lets downstream tooling consume a "
+             "machine-readable run summary without stdout scraping.",
+    )
     args = ap.parse_args()
 
     cases = discover_cases()
@@ -83,12 +104,15 @@ def main() -> int:
     print(f"Running {len(cases)} VerifyLab case(s)...\n")
 
     results = []
+    records: list[dict] = []
     for c in cases:
         print(f"-- {c.name} --")
-        ok, out = run_case(c)
+        ok, out, record = run_case(c)
         for line in out.splitlines():
             print(f"   {line}")
         results.append((c.name, ok))
+        if record is not None:
+            records.append(record)
         print()
 
     print("=" * 60)
@@ -102,6 +126,13 @@ def main() -> int:
         print(f"{name:<40} {marker:>10}")
     print("-" * 60)
     print(f"Total: {len(results)}   Passed: {n_pass}   Failed: {len(results) - n_pass}")
+
+    if args.jsonl:
+        import json
+        with open(args.jsonl, "w") as f:
+            for rec in records:
+                f.write(json.dumps(rec, sort_keys=True) + "\n")
+        print(f"\nWrote {len(records)} result record(s) to {args.jsonl}")
 
     return 0 if n_pass == len(results) else 1
 

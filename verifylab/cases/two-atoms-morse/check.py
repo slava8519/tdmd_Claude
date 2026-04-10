@@ -24,11 +24,15 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 from pathlib import Path
 
 CASE_DIR = Path(__file__).parent
 REPO_ROOT = CASE_DIR.parents[2]
+
+sys.path.insert(0, str(REPO_ROOT / "verifylab" / "runners"))
+from result_schema import emit_result  # noqa: E402
 TOL_PATH = CASE_DIR / "tolerance.toml"
 ANALYTIC_PATH = CASE_DIR / "reference" / "analytic.json"
 DATA_PATH = CASE_DIR / "input" / "two_atoms.data"
@@ -136,8 +140,13 @@ def select_thresh(section: dict, key_base: str, mode: str) -> float:
     return float(section[key_base])
 
 
-def check_atom_forces(tdmd_atoms: dict, analytic: dict, tol: dict, mode: str) -> list[str]:
-    """Compare per-atom forces against analytic reference. Return list of failures."""
+def check_atom_forces(tdmd_atoms: dict, analytic: dict, tol: dict,
+                      mode: str) -> tuple[list[str], float]:
+    """Compare per-atom forces against analytic reference.
+
+    Returns (failures, max_force_err) where max_force_err is the worst
+    per-component error (relative where analytic > 1e-12, absolute otherwise).
+    """
     failures: list[str] = []
     thresh = select_thresh(tol["forces"], "threshold", mode)
 
@@ -145,6 +154,7 @@ def check_atom_forces(tdmd_atoms: dict, analytic: dict, tol: dict, mode: str) ->
         1: tuple(analytic["step0"]["force_on_atom_1_eV_per_A"]),
         2: tuple(analytic["step0"]["force_on_atom_2_eV_per_A"]),
     }
+    max_err = 0.0
     for aid, fexp in expected.items():
         if aid not in tdmd_atoms:
             failures.append(f"atom {aid} missing from TDMD dump")
@@ -154,22 +164,29 @@ def check_atom_forces(tdmd_atoms: dict, analytic: dict, tol: dict, mode: str) ->
             # For components where the analytic expectation is zero, compare absolute;
             # for nonzero, compare relative.
             if abs(e) < 1e-12:
-                if abs(o) > thresh:
+                err = abs(o)
+                if err > max_err:
+                    max_err = err
+                if err > thresh:
                     failures.append(
                         f"atom {aid} F[{comp}]: expected 0, got {o:+.6e} "
                         f"(abs > {thresh:.1e})"
                     )
             else:
                 rel = max_rel_err(o, e)
+                if rel > max_err:
+                    max_err = rel
                 if rel > thresh:
                     failures.append(
                         f"atom {aid} F[{comp}]: expected {e:+.6e}, got {o:+.6e} "
                         f"(rel {rel:.3e} > {thresh:.1e})"
                     )
-    return failures
+    return failures, max_err
 
 
-def check_energy(tdmd_thermo: dict, analytic: dict, tol: dict, mode: str) -> list[str]:
+def check_energy(tdmd_thermo: dict, analytic: dict, tol: dict,
+                 mode: str) -> tuple[list[str], float]:
+    """Compare PE against analytic. Returns (failures, pe_abs_err)."""
     failures: list[str] = []
     thresh = select_thresh(tol["energy"], "threshold", mode)
     expected = float(analytic["step0"]["U_eV"])
@@ -180,7 +197,7 @@ def check_energy(tdmd_thermo: dict, analytic: dict, tol: dict, mode: str) -> lis
             f"PE: expected {expected:+.8f}, got {observed:+.8f} "
             f"(abs {err:.3e} > {thresh:.1e})"
         )
-    return failures
+    return failures, err
 
 
 def resolve_binary(explicit: str | None, mode: str) -> Path:
@@ -220,10 +237,20 @@ def main() -> int:
     print(f"mode       : {args.mode}")
     print(f"binary     : {bin_path}")
 
+    t0 = time.monotonic()
     try:
         thermo, atoms = run_tdmd(bin_path)
     except Exception as e:
         print(f"ERROR running TDMD: {e}")
+        emit_result(
+            case="two-atoms-morse",
+            mode=args.mode,
+            status="error",
+            metrics={},
+            thresholds={},
+            failures=[f"run failed: {e}"],
+            duration_s=time.monotonic() - t0,
+        )
         return 2
 
     expected_pe = float(analytic["step0"]["U_eV"])
@@ -233,8 +260,27 @@ def main() -> int:
     print(f"  atom 2 Fx    = {atoms[2]['force'][0]:+.14f} eV/A  (analytic: {-expected_f1:+.14f})")
 
     failures: list[str] = []
-    failures += check_atom_forces(atoms, analytic, tol, args.mode)
-    failures += check_energy(thermo, analytic, tol, args.mode)
+    force_fails, max_force_err = check_atom_forces(atoms, analytic, tol, args.mode)
+    pe_fails, pe_abs_err = check_energy(thermo, analytic, tol, args.mode)
+    failures += force_fails
+    failures += pe_fails
+
+    status = "fail" if failures else "pass"
+    emit_result(
+        case="two-atoms-morse",
+        mode=args.mode,
+        status=status,
+        metrics={
+            "max_force_err": max_force_err,
+            "pe_abs_err": pe_abs_err,
+        },
+        thresholds={
+            "max_force_err": select_thresh(tol["forces"], "threshold", args.mode),
+            "pe_abs_err": select_thresh(tol["energy"], "threshold", args.mode),
+        },
+        failures=failures,
+        duration_s=time.monotonic() - t0,
+    )
 
     if failures:
         print("\nFAIL:")
