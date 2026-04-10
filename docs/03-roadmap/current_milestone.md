@@ -1,8 +1,8 @@
 # Current milestone status
 
-> **Last updated:** 2026-04-09
+> **Last updated:** 2026-04-10
 
-## Phase 3 series — COMPLETE (closed in session 3B.closing)
+## Phase 3 series — COMPLETE (closed in session 3B.closing, hardened in session 3D)
 
 Phase 3 series consisted of 7 sub-sessions covering hygiene, critical bug
 fixes, mixed precision implementation, and performance recovery. Final state:
@@ -48,6 +48,63 @@ Mixed mode (production default), `fast_pipeline` scheduler, RTX 5080:
 
 FP64 mode (validation/reference), medium: 754 ts/s.
 
+### Session 3D — Phase 3 hardening (2026-04-10)
+
+After EAM-1B closed the precision contract, session 3D shipped two
+follow-on bundles that lock the migration into the project's process,
+not just the code.
+
+**Bundle 1 — Vec3 role-alias migration finished and documented:**
+
+- **Stages 2–4 atomic refactor (commit `4a718f8`, 57 files):** all
+  remaining `Vec3` storage and signatures migrated to `PositionVec` /
+  `VelocityVec` / `ForceVec`. Touched: `hybrid_pipeline_scheduler.cu`
+  (pack/unpack zones), `mpi_ring_comm` (split payload sizing),
+  `cell_list` + `device_cell_list` (`Vec3D` cell metrics),
+  `dump_reader`, `tdmd_main` (KE accumulator), and 16 test/benchmark
+  files. Build clean in both modes; 73/73 unit tests pass in
+  `build-mixed/` and `build-fp64/`. Stages 2–4 had to ship as one
+  commit due to a dependency cycle between scheduler and pack format.
+- **ADR 0009 (commit `00fd490`):** new ADR records the 5-stage typed
+  Vec3 rollout — context, alternatives considered, performance
+  outcome (4.0–5.3× mixed-vs-fp64 speedup, TDMD-mixed beats LAMMPS-GPU
+  1.26× on 32k atoms), and the meta-lesson that documents drift while
+  code does not.
+
+**Bundle 2 — Phase 3 hardening (8 commits, lessons → process):**
+
+The four pitfalls Phase 3 hit (silent storage gap, EAM accumulator
+precision loss, default-stream serialization, distance-precision trap)
+are now codified across three layers of defence:
+
+1. `5e105a0` — CLAUDE.md §4: four new hard rules
+   (relative-coord trick, float intrinsics, `accum_t` reductions,
+   grep-verify type invariants).
+2. `22b3049` — `docs/04-development/lessons-learned.md` (new, 202
+   lines): the four pitfall stories with reproductions, fixes, and
+   commit references; meta-lesson "Documents lie, code does not".
+3. `5c1d5be` — `prompts/roles/implementer.md`: closing grep step
+   added to "After writing code".
+4. `15998b4` — `prompts/roles/architect.md`: new "Grounding: read
+   the code before you recommend" section + ADR-pushback rule.
+5. `b8189b0` — `prompts/roles/reviewer.md`: default-stream and
+   `accum_t` items added to "almost always catch"; new "Review by
+   grep, not by report" section requiring LAMMPS-citation evidence
+   for ADR 0008 claims.
+6. `c3a81ac` — `prompts/roles/researcher.md` (new, 120 lines):
+   read-only investigation role with halt-on-surprise discipline.
+   Reports go to `/tmp/`, not the repo.
+7. `072caec` — `prompts/roles/user-advocate.md` (new, 155 lines):
+   usability evaluation against LAMMPS baseline. Reports to
+   `docs/05-benchmarks/usability/`.
+8. `ddcbc24` — CLAUDE.md §12: registers the two new roles in the
+   role index.
+
+After bundle 2 the rule is: any session that touches precision,
+storage types, or `DeviceBuffer` element types ends with a grep, and
+that grep result goes into the user-facing report. Documents are
+treated as intent, code as fact.
+
 ### Backlog after Phase 3
 
 - **Phase Б (deferred):** PBC outside force kernel + image counter. ~7%
@@ -60,12 +117,17 @@ FP64 mode (validation/reference), medium: 754 ts/s.
   (spline coefficients are `real`/float, not double as originally stated).
   All tests pass in both modes.
 - **Session 3C:** Remove `using real = ...` typedef from core/types.hpp,
-  full migration cleanup. Cosmetic, low priority.
+  full migration cleanup. Cosmetic, low priority. (Note: as of 3D the
+  legacy `Vec3 = Vec3T<real>` alias still lives in `types.hpp` and
+  `math.hpp` for tests that haven't been converted; safe to defer.)
 - **Phase 4 backlog:** neighbor list rebuild optimization (~10-15% additional
   speedup), EAM migration to FastPipelineScheduler, kernel fusion K > 1 for
   M7 (TDMD-unique optimization).
 - **Distributed scaffold honesty:** M5/M6 still use full replication, not
   ghost-only exchange. See ADR 0006.
+- **VerifyLab stub:** `verifylab/cases/single-gpu-collapse/` README is
+  drafted (3 test cases, all unimplemented). Blocked on ADR 0005 Phase 2
+  zone-collapse implementation in the scheduler.
 
 ## Next milestone — TBD
 

@@ -98,3 +98,8 @@ docs/site/
 .envrc
 .env.local
 local.cmake
+
+# Developer-local LAMMPS mirror — present for debugging and reference reading
+# (CLAUDE.md §9). Not committed: keeps build state out of TDMD history. Promote
+# to a proper submodule when reproducibility across machines is required.
+third_party/
