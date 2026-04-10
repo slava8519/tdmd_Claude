@@ -413,3 +413,98 @@ TEST(EamAlloy, FccBulkEnergy) {
   EXPECT_NEAR(pe_per_atom, -3.54, 0.1)
       << "PE/atom = " << pe_per_atom;
 }
+
+// VL-15: setfl parser robustness.
+//
+// A corrupt or truncated setfl must be rejected with a clear exception — not
+// silently parsed into garbage splines, not return random values, not crash.
+// The research doc frames this as "fuzz the reader"; for our purposes, the
+// interesting failure modes are bounded and enumerable, so we test them
+// directly rather than running a fuzzer.
+//
+// Cases covered:
+//   1. Empty file                              -> premature end
+//   2. Only comment lines, no ntypes header    -> premature end
+//   3. Header valid but zero F(rho) values     -> premature end during array
+//   4. Truncated mid-F(rho)                    -> premature end during array
+//   5. Truncated just before pair block        -> premature end during array
+//
+// Cases NOT covered (deliberately):
+//   - Wrong ntypes vs declared (e.g. "2 A" -> iss fails on name read and reads
+//     garbage; parser's silent tolerance here is a known gap tracked as its
+//     own follow-up, not folded into VL-15 to keep scope tight).
+//   - Negative Nrho/Nr (resize with negative count is UB at the C++ level
+//     before the parser can reject it — needs a guard in the reader itself).
+//
+// The current reader uses TDMD_THROW for premature-end conditions, which maps
+// to std::runtime_error. The tests assert the throw, not a specific message.
+static std::string write_file(const std::string& name,
+                              const std::string& contents) {
+  namespace fs = std::filesystem;
+  fs::path tmp = fs::temp_directory_path() / name;
+  std::ofstream f(tmp);
+  f << contents;
+  f.close();
+  return tmp.string();
+}
+
+TEST(EamAlloy, RejectEmptyFile) {
+  std::string path = write_file("tdmd_setfl_empty.eam.alloy", "");
+  EamAlloy eam;
+  EXPECT_THROW(eam.read_setfl(path), std::runtime_error);
+  std::filesystem::remove(path);
+}
+
+TEST(EamAlloy, RejectCommentsOnly) {
+  std::string path = write_file(
+      "tdmd_setfl_comments.eam.alloy",
+      "# line 1\n# line 2\n# line 3\n");
+  EamAlloy eam;
+  EXPECT_THROW(eam.read_setfl(path), std::runtime_error);
+  std::filesystem::remove(path);
+}
+
+TEST(EamAlloy, RejectMissingEmbeddingArray) {
+  // Full header promising Nrho=500 embedding values, but file ends
+  // immediately after the per-element header line.
+  std::string contents =
+      "# c1\n# c2\n# c3\n"
+      "1 Cu\n"
+      "500 0.01 500 0.012 6.0\n"
+      "29 63.546 3.615 fcc\n";
+  std::string path = write_file("tdmd_setfl_no_embed.eam.alloy", contents);
+  EamAlloy eam;
+  EXPECT_THROW(eam.read_setfl(path), std::runtime_error);
+  std::filesystem::remove(path);
+}
+
+TEST(EamAlloy, RejectTruncatedEmbeddingArray) {
+  // Header promises 500 F(rho) values; we provide only 10 then EOF.
+  std::string contents =
+      "# c1\n# c2\n# c3\n"
+      "1 Cu\n"
+      "500 0.01 500 0.012 6.0\n"
+      "29 63.546 3.615 fcc\n";
+  for (int i = 0; i < 10; ++i) contents += "0.0\n";
+  std::string path = write_file("tdmd_setfl_trunc_embed.eam.alloy", contents);
+  EamAlloy eam;
+  EXPECT_THROW(eam.read_setfl(path), std::runtime_error);
+  std::filesystem::remove(path);
+}
+
+TEST(EamAlloy, RejectMissingPairBlock) {
+  // Full embedding + density for element 0, but the pair block (phi*r) is
+  // absent entirely — file ends after the last density value.
+  std::string contents =
+      "# c1\n# c2\n# c3\n"
+      "1 Cu\n"
+      "50 0.01 50 0.012 0.6\n"
+      "29 63.546 3.615 fcc\n";
+  for (int i = 0; i < 50; ++i) contents += "-1.0\n";  // F(rho)
+  for (int i = 0; i < 50; ++i) contents += "0.5\n";   // rho(r)
+  // No phi block.
+  std::string path = write_file("tdmd_setfl_no_pair.eam.alloy", contents);
+  EamAlloy eam;
+  EXPECT_THROW(eam.read_setfl(path), std::runtime_error);
+  std::filesystem::remove(path);
+}
