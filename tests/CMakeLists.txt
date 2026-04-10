@@ -54,6 +54,7 @@ if(TDMD_ENABLE_CUDA)
     unit/test_device_nve_drift.cu
     unit/test_pipeline_scheduler.cu
     unit/test_fast_pipeline.cu
+    unit/test_fast_pipeline_eam.cu
     unit/test_nvt_thermostat.cu
     unit/test_sum_order_sensitivity.cu
   )

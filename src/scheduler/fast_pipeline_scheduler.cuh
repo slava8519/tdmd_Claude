@@ -3,9 +3,10 @@
 //
 // Key differences from PipelineScheduler:
 //   1. No zone state machine, no check_deps, no per-zone launches.
-//   2. One force kernel covers all atoms at once (compute_morse_gpu).
+//   2. One force kernel covers all atoms at once (Morse or EAM 3-pass).
 //   3. Integrator phases (half_kick, drift, force, half_kick) run as
-//      whole-system kernels. 5 launches per step (including zero_forces).
+//      whole-system kernels. 5 launches per Morse step (including
+//      zero_forces); EAM adds two extra passes for density + embedding.
 //   4. No cudaDeviceSynchronize in the hot loop. All kernels queue on a
 //      dedicated non-default stream and serialize via in-stream ordering.
 //   5. Single cudaStreamSynchronize at the end of run_until().
@@ -15,13 +16,26 @@
 
 #include <cuda_runtime.h>
 
+#include <memory>
+
 #include "../core/box.hpp"
 #include "../core/device_buffer.cuh"
 #include "../core/types.hpp"
 #include "../neighbors/device_neighbor_list.cuh"
 #include "../potentials/device_morse.cuh"
 
+namespace tdmd::potentials {
+class EamAlloy;  // forward decl — full def lives in eam_alloy.hpp
+class DeviceEam;  // forward decl — full def lives in device_eam.cuh
+}  // namespace tdmd::potentials
+
 namespace tdmd::scheduler {
+
+/// @brief Which pair potential the scheduler drives.
+enum class PotentialKind {
+  Morse,
+  Eam,
+};
 
 /// @brief Configuration for FastPipelineScheduler.
 struct FastPipelineConfig {
@@ -39,17 +53,34 @@ struct FastPipelineStats {
 
 /// @brief Batched single-GPU scheduler implementing ADR 0005 Phase 2.
 ///
-/// On each step, runs 5 whole-system kernel launches on a dedicated stream:
-///   half_kick -> drift -> zero_forces -> morse_force -> half_kick
+/// On each step, runs 5 whole-system kernel launches on a dedicated stream
+/// for Morse (half_kick → drift → zero_forces → morse_force → half_kick) or
+/// 7 for EAM (half_kick → drift → zero_forces → eam_density → eam_embedding
+/// → eam_force → half_kick).
 ///
 /// No zone state machine, no per-zone launches, no cudaDeviceSynchronize
 /// between steps. In-stream ordering guarantees kernel execution order.
 /// CPU queues launches asynchronously — GPU catches up in the background.
+///
+/// Potential is selected at construction time via overload resolution:
+/// passing a MorseParams selects the Morse path, passing an EamAlloy
+/// selects the EAM path. Once constructed, the potential cannot change.
 class FastPipelineScheduler {
  public:
+  /// @brief Construct a Morse-driven scheduler. Morse params are copied
+  /// by value; the scheduler owns them.
   FastPipelineScheduler(const Box& box, i32 natoms,
                         const potentials::MorseParams& params,
                         const FastPipelineConfig& cfg);
+
+  /// @brief Construct an EAM-driven scheduler. The EamAlloy is read
+  /// only during construction — its tables are uploaded to the GPU
+  /// immediately, after which the scheduler holds an owning
+  /// DeviceEam with no reference back to the host-side EamAlloy.
+  FastPipelineScheduler(const Box& box, i32 natoms,
+                        const potentials::EamAlloy& eam,
+                        const FastPipelineConfig& cfg);
+
   ~FastPipelineScheduler();
 
   FastPipelineScheduler(const FastPipelineScheduler&) = delete;
@@ -76,18 +107,58 @@ class FastPipelineScheduler {
   /// @brief Current simulation step.
   [[nodiscard]] i32 current_step() const noexcept { return current_step_; }
 
+  /// @brief Which potential this scheduler drives.
+  [[nodiscard]] PotentialKind potential_kind() const noexcept {
+    return potential_kind_;
+  }
+
+  /// @brief Cutoff used to build the neighbor list (potential cutoff +
+  /// nothing; r_skin is added inside DeviceNeighborList::build). Cached
+  /// at construction time so force dispatch never has to re-query the
+  /// potential for its cutoff.
+  [[nodiscard]] real interaction_cutoff() const noexcept { return cutoff_; }
+
  private:
-  /// @brief One velocity-Verlet step: 5 kernel launches, no sync.
+  /// @brief Dispatch one velocity-Verlet step to the potential-specific
+  /// implementation. Keeps the per-potential hot path in its own
+  /// function so feature work does not smear across step().
   void step();
 
+  /// @brief Morse-specific hot path (5 kernel launches).
+  void step_morse();
+
+  /// @brief EAM-specific hot path (7 kernel launches: kick + drift +
+  /// zero + 3 EAM passes + kick).
+  void step_eam();
+
+  /// @brief Compute the initial forces once, before the first step.
+  /// Runs the full potential pass so velocity Verlet has a valid F at
+  /// t = 0. Shared between Morse and EAM.
+  void compute_initial_forces();
+
   /// @brief Rebuild neighbor list if enough steps since last rebuild.
-  /// Contains internal sync (two-pass build with host prefix sum).
+  /// Uses cutoff_ (cached at construction) as the interaction range.
   void maybe_rebuild_nlist();
 
   Box box_;
   i32 natoms_;
-  potentials::MorseParams params_;
   FastPipelineConfig cfg_;
+
+  // Potential kind + exactly one populated potential member. The
+  // invariant is enforced by the constructors and asserted in the
+  // hot path:
+  //   kind == Morse ⇒ eam_ == nullptr
+  //   kind == Eam   ⇒ eam_ != nullptr
+  // The Morse branch stores params by value; the EAM branch owns a
+  // DeviceEam with pre-uploaded tables.
+  PotentialKind potential_kind_;
+  potentials::MorseParams morse_params_{};
+  std::unique_ptr<potentials::DeviceEam> eam_;
+
+  // Cached interaction cutoff (potential-specific). Single source of
+  // truth for the neighbor list builder — neither step_morse nor
+  // step_eam ever re-queries the potential.
+  real cutoff_{0};
 
   DeviceBuffer<PositionVec> d_pos_;
   DeviceBuffer<VelocityVec> d_vel_;
