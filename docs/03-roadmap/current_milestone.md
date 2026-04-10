@@ -162,9 +162,45 @@ suite that gates every PR. VL-1 and VL-2 done; VL-3, VL-4, VL-5 remain.
   max `|dF|` ~6.8e-4 eV/Å, `|dTE|/|TE|` ~1.1e-5. All within ~24×
   margin of the committed thresholds. Fast suite now at 3/3 PASS
   (two-atoms-morse, run0-force-match, cross-precision-ab).
-- **VL-5 ⏳ — CI wiring.** `./scripts/run-verifylab.sh --suite fast`
-  as a required check on PRs. Fast suite runs every PR; slow suite
-  nightly.
+- **VL-5 ✅ — CI wiring.** `.github/workflows/verifylab.yml`
+  rewritten. Two jobs:
+  - `fast-suite` runs on `pull_request` and `push` to `main`. Builds
+    both `build-mixed/` and `build-fp64/` in a CPU-only configuration
+    (no CUDA / no MPI — GitHub free-tier runners have no GPU), then
+    runs the fast suite in each mode. The three fast cases
+    (two-atoms-morse, run0-force-match, cross-precision-ab) now gate
+    every PR. Runs on `ubuntu-24.04` because VerifyLab checks use
+    `tomllib`, which is stdlib only from Python 3.11+ (Ubuntu 22.04
+    ships 3.10). Estimated wall-clock ~2 min.
+  - `slow-suite` runs only on the existing nightly cron (03:00 UTC).
+    Same build, runs `--suite slow` in both modes (just nve-drift for
+    now). Gated by `if: github.event_name == 'schedule'` so it does
+    not fire on PRs. Estimated wall-clock ~6 min.
+  - The previous `|| echo "VerifyLab not yet available at M0"`
+    swallow-failure trick is gone — real failures now break the
+    build as intended. `docs/04-development/ci-strategy.md` updated
+    to list VerifyLab as a real CI coverage line.
+  - Validated locally by spinning up fresh CPU-only `build-mixed/`
+    and `build-fp64/` directories in `/tmp/`, running both
+    `run-verifylab.sh --mode mixed --suite fast` and
+    `--mode fp64 --suite fast`. All 3 fast cases PASS in each mode.
+
+### Session VL closed
+
+The 5-session VerifyLab expansion is complete. TDMD now has four
+live physics-validation cases that run against the real
+`tdmd_standalone` CPU driver, and three of them gate every PR:
+
+| case                | mode(s)       | suite | what it checks                        |
+|---------------------|---------------|-------|---------------------------------------|
+| two-atoms-morse     | mixed + fp64  | fast  | analytic Morse force + energy         |
+| run0-force-match    | mixed + fp64  | fast  | 256-atom Cu FCC LAMMPS A/B (Morse+EAM)|
+| cross-precision-ab  | both required | fast  | mixed vs fp64 short-NVE divergence    |
+| nve-drift           | mixed + fp64  | slow  | 20 ps NVE total-energy drift          |
+
+CPU physics regressions will now be caught automatically. GPU
+physics still needs manual validation until a self-hosted GPU runner
+exists (see `docs/04-development/ci-strategy.md`).
 
 ### Backlog after Phase 3
 

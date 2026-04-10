@@ -1,16 +1,20 @@
 # CI strategy for TDMD
 
-> **Last updated:** 2026-04-09
+> **Last updated:** 2026-04-10
 
 ## Current state
 
 | Job | What it covers | What it misses |
 |-----|---------------|----------------|
 | **CPU build+test** | CPU-only code: core, io, domain, CPU potentials, CPU integrator, CPU neighbor list. Runs `ctest`. | Everything CUDA and MPI. |
+| **VerifyLab fast suite** (gates PRs) | End-to-end physics validation on the CPU driver: analytic Morse force match, LAMMPS A/B on 256-atom Cu FCC with Morse + EAM, cross-precision A/B between `build-mixed/` and `build-fp64/`. Builds both precision modes. | GPU code paths. Slow integrator drift (moved to nightly). |
+| **VerifyLab slow suite** (nightly) | Long NVE drift: 4000-atom Cu FCC, EAM, 20 ps trajectory, asserts total energy drift bound. Runs in both modes. | GPU code paths. |
 | **CUDA compile-only** (TEMPORARY) | Compilation of `.cu` files, kernel launch syntax, CUDA API signatures, header includes. | Runtime correctness, race conditions, memory errors, physics, performance. |
 | **MPI compile-only** (TEMPORARY) | MPI header includes, collective call signatures, linker resolution. | Deadlocks, rank logic bugs, off-by-one in partitioning. |
 
-Both TEMPORARY jobs exist because GitHub free-tier runners have no GPU. They catch ~60% of typical regressions (broken signatures, missing headers, syntax errors) but provide **no runtime guarantees**.
+The CUDA and MPI compile-only jobs exist because GitHub free-tier runners have no GPU. They catch ~60% of typical regressions (broken signatures, missing headers, syntax errors) but provide **no runtime guarantees** for CUDA/MPI code paths.
+
+The VerifyLab jobs close an important gap: they exercise the real CPU driver (`tdmd_standalone`) against analytic and LAMMPS references, so physics regressions in the CPU force/integrator path are caught on every PR, not only in local manual testing. GPU physics still requires manual validation until a self-hosted GPU runner exists.
 
 ## What CI does NOT catch
 

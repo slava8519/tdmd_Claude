@@ -3,20 +3,92 @@ name: verifylab
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   schedule:
-    # nightly full suite
+    # Nightly slow suite (long NVE drift). 03:00 UTC.
     - cron: '0 3 * * *'
 
 jobs:
+  # Fast suite — runs on every PR and every push to main.
+  # Builds both precision modes (CPU-only, no CUDA / no MPI) so the
+  # cross-precision-ab case can compare them. ~2 minutes wall-clock.
   fast-suite:
-    runs-on: ubuntu-22.04
+    name: "VerifyLab fast suite (mixed + fp64)"
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+
       - name: Install deps
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build g++ python3
-      - name: Build
-        run: ./scripts/build.sh
-      - name: Run VerifyLab fast suite
-        run: ./scripts/run-verifylab.sh --suite fast || echo "VerifyLab not yet available at M0"
+
+      - name: Verify Python has tomllib (>= 3.11)
+        run: python3 -c "import tomllib; print('tomllib OK')"
+
+      - name: Configure build-mixed (CPU-only)
+        run: |
+          cmake -B build-mixed -S . -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTDMD_PRECISION=mixed \
+            -DTDMD_BUILD_TESTS=OFF
+
+      - name: Build tdmd_standalone (mixed)
+        run: cmake --build build-mixed --target tdmd_standalone -j
+
+      - name: Configure build-fp64 (CPU-only)
+        run: |
+          cmake -B build-fp64 -S . -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTDMD_PRECISION=fp64 \
+            -DTDMD_BUILD_TESTS=OFF
+
+      - name: Build tdmd_standalone (fp64)
+        run: cmake --build build-fp64 --target tdmd_standalone -j
+
+      - name: Run VerifyLab fast suite (mixed)
+        run: ./scripts/run-verifylab.sh --mode mixed --suite fast
+
+      - name: Run VerifyLab fast suite (fp64)
+        run: ./scripts/run-verifylab.sh --mode fp64 --suite fast
+
+  # Slow suite — nightly only. Long NVE drift case runs ~3 min per mode.
+  # Triggered only by the schedule event so it does not gate PRs.
+  slow-suite:
+    name: "VerifyLab slow suite (nightly, mixed + fp64)"
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++ python3
+
+      - name: Configure build-mixed (CPU-only)
+        run: |
+          cmake -B build-mixed -S . -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTDMD_PRECISION=mixed \
+            -DTDMD_BUILD_TESTS=OFF
+
+      - name: Build tdmd_standalone (mixed)
+        run: cmake --build build-mixed --target tdmd_standalone -j
+
+      - name: Configure build-fp64 (CPU-only)
+        run: |
+          cmake -B build-fp64 -S . -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTDMD_PRECISION=fp64 \
+            -DTDMD_BUILD_TESTS=OFF
+
+      - name: Build tdmd_standalone (fp64)
+        run: cmake --build build-fp64 --target tdmd_standalone -j
+
+      - name: Run VerifyLab slow suite (mixed)
+        run: ./scripts/run-verifylab.sh --mode mixed --suite slow
+
+      - name: Run VerifyLab slow suite (fp64)
+        run: ./scripts/run-verifylab.sh --mode fp64 --suite slow
