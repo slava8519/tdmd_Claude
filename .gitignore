@@ -74,6 +74,9 @@ massif.out.*
 log.lammps
 log.cite
 *.dump
+# …but VerifyLab committed LAMMPS reference dumps are golden references
+# and must be tracked (they're what TDMD is graded against).
+!verifylab/cases/**/*.dump
 *.lammpstrj
 *.restart
 # Core dump files (not src/core/)
