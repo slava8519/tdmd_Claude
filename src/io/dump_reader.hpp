@@ -13,8 +13,8 @@ namespace tdmd::io {
 struct DumpAtom {
   i32 id;
   i32 type;
-  Vec3 pos;
-  Vec3 force;
+  PositionVec pos;
+  ForceVec force;
 };
 
 /// @brief Read forces from a LAMMPS custom dump file.

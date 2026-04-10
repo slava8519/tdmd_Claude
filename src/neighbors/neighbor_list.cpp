@@ -11,7 +11,7 @@
 
 namespace tdmd::neighbors {
 
-void NeighborList::build(const Vec3* positions, i64 natoms, const Box& box,
+void NeighborList::build(const PositionVec* positions, i64 natoms, const Box& box,
                          real r_cut, real r_skin) {
   r_cut_ = r_cut;
   r_skin_ = r_skin;
@@ -35,7 +35,7 @@ void NeighborList::build(const Vec3* positions, i64 natoms, const Box& box,
   const i32 ncy = cell_list_.ncells_y();
 
   for (i64 i = 0; i < natoms; ++i) {
-    const Vec3 pi = positions[static_cast<std::size_t>(i)];
+    const PositionVec pi = positions[static_cast<std::size_t>(i)];
     const i32 ci = cell_list_.cell_of(pi, box.lo);
 
     // Decompose flat cell index to (ix, iy, iz).
@@ -55,9 +55,9 @@ void NeighborList::build(const Vec3* positions, i64 natoms, const Box& box,
             const i32 j = atoms[k];
             if (j <= static_cast<i32>(i)) continue;  // half-list: only i < j
 
-            Vec3 delta = positions[static_cast<std::size_t>(j)] - pi;
+            Vec3D delta = positions[static_cast<std::size_t>(j)] - pi;
             delta = minimum_image(delta, box_size, box.periodic);
-            const real r2 = length_sq(delta);
+            const real r2 = static_cast<real>(length_sq(delta));
 
             if (r2 < r_list_sq) {
               per_atom[static_cast<std::size_t>(i)].push_back(j);
@@ -88,11 +88,12 @@ void NeighborList::build(const Vec3* positions, i64 natoms, const Box& box,
   build_positions_.assign(positions, positions + natoms);
 }
 
-bool NeighborList::needs_rebuild(const Vec3* positions, i64 natoms) const {
-  const real half_skin_sq = real{0.25} * r_skin_ * r_skin_;
+bool NeighborList::needs_rebuild(const PositionVec* positions, i64 natoms) const {
+  const double half_skin_sq =
+      0.25 * static_cast<double>(r_skin_) * static_cast<double>(r_skin_);
   for (i64 i = 0; i < natoms; ++i) {
     auto si = static_cast<std::size_t>(i);
-    Vec3 delta = positions[si] - build_positions_[si];
+    Vec3D delta = positions[si] - build_positions_[si];
     if (length_sq(delta) > half_skin_sq) return true;
   }
   return false;

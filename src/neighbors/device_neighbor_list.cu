@@ -21,7 +21,7 @@ namespace {
 /// When `d_neighbors` is nullptr, only counts are written (sizing pass).
 /// When `d_neighbors` is provided, neighbors are written (fill pass).
 __global__ void build_nlist_kernel(
-    const Vec3* __restrict__ positions, i32 natoms,
+    const PositionVec* __restrict__ positions, i32 natoms,
     const i32* __restrict__ cell_atoms, const i32* __restrict__ cell_offsets,
     const i32* __restrict__ cell_counts, i32 ncx, i32 ncy, i32 ncz,
     Vec3D box_lo, Vec3D box_size, bool pbc_x, bool pbc_y, bool pbc_z,
@@ -137,7 +137,7 @@ __global__ void build_nlist_kernel(
 
 }  // namespace
 
-void DeviceNeighborList::build(const Vec3* d_positions, i64 natoms,
+void DeviceNeighborList::build(const PositionVec* d_positions, i64 natoms,
                                const Box& box, real r_cut, real r_skin,
                                cudaStream_t stream) {
   TDMD_ASSERT(r_cut > real{0}, "r_cut must be positive");

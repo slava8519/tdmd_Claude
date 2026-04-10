@@ -32,24 +32,26 @@
 using namespace tdmd;
 using namespace tdmd::testing;
 
-static real compute_ke_host(const std::vector<Vec3>& velocities,
-                            const std::vector<i32>& types,
-                            const std::vector<real>& masses, i64 natoms) {
-  real ke = 0;
+static double compute_ke_host(const std::vector<VelocityVec>& velocities,
+                              const std::vector<i32>& types,
+                              const std::vector<real>& masses, i64 natoms) {
+  double ke = 0;
   for (i64 i = 0; i < natoms; ++i) {
     auto si = static_cast<std::size_t>(i);
-    real mass = masses[static_cast<std::size_t>(types[si])];
-    const Vec3& v = velocities[si];
-    ke += real{0.5} * mass * kMvv2e * (v.x * v.x + v.y * v.y + v.z * v.z);
+    double mass =
+        static_cast<double>(masses[static_cast<std::size_t>(types[si])]);
+    const VelocityVec& v = velocities[si];
+    ke += 0.5 * mass * static_cast<double>(kMvv2e) *
+          (v.x * v.x + v.y * v.y + v.z * v.z);
   }
   return ke;
 }
 
 // Helper: compare two SystemStates atom-by-atom using ID mapping.
 /// Minimum-image-aware position comparison for PBC-safe deterministic match.
-static real pbc_component_diff(real a, real b, real box_len) {
-  real d = std::abs(a - b);
-  if (d > box_len * real{0.5}) d = box_len - d;
+static double pbc_component_diff(double a, double b, double box_len) {
+  double d = std::abs(a - b);
+  if (d > box_len * 0.5) d = box_len - d;
   return d;
 }
 
@@ -67,24 +69,26 @@ static void compare_states(const SystemState& s1, const SystemState& s2,
     map2[static_cast<std::size_t>(s2.ids[i] - 1)] = i;
   }
 
-  real max_pos_diff = 0, max_vel_diff = 0;
+  double max_pos_diff = 0, max_vel_diff = 0;
   for (std::size_t id = 0; id < n; ++id) {
     auto i1 = map1[id];
     auto i2 = map2[id];
     // PBC-aware position comparison.
-    real dp = std::max({pbc_component_diff(s1.positions[i1].x, s2.positions[i2].x, box_size.x),
-                        pbc_component_diff(s1.positions[i1].y, s2.positions[i2].y, box_size.y),
-                        pbc_component_diff(s1.positions[i1].z, s2.positions[i2].z, box_size.z)});
+    double dp = std::max({pbc_component_diff(s1.positions[i1].x, s2.positions[i2].x, box_size.x),
+                          pbc_component_diff(s1.positions[i1].y, s2.positions[i2].y, box_size.y),
+                          pbc_component_diff(s1.positions[i1].z, s2.positions[i2].z, box_size.z)});
     max_pos_diff = std::max(max_pos_diff, dp);
     // Velocity comparison (no PBC wrap).
-    real dv = std::max({std::abs(s1.velocities[i1].x - s2.velocities[i2].x),
-                        std::abs(s1.velocities[i1].y - s2.velocities[i2].y),
-                        std::abs(s1.velocities[i1].z - s2.velocities[i2].z)});
+    double dv = std::max({std::abs(s1.velocities[i1].x - s2.velocities[i2].x),
+                          std::abs(s1.velocities[i1].y - s2.velocities[i2].y),
+                          std::abs(s1.velocities[i1].z - s2.velocities[i2].z)});
     max_vel_diff = std::max(max_vel_diff, dv);
   }
 
-  EXPECT_LT(max_pos_diff, pos_tol) << label << " position diff";
-  EXPECT_LT(max_vel_diff, vel_tol) << label << " velocity diff";
+  EXPECT_LT(max_pos_diff, static_cast<double>(pos_tol))
+      << label << " position diff";
+  EXPECT_LT(max_vel_diff, static_cast<double>(vel_tol))
+      << label << " velocity diff";
 }
 
 TEST(DistributedPipeline, DeterministicMatchesSingleRank) {
@@ -187,15 +191,16 @@ TEST(DistributedPipeline, PipelineNVEConservation) {
                  static_cast<i32>(state.natoms));
 
   // Compute initial energy on CPU (rank 0).
-  real e0 = 0, ef = 0;
+  double e0 = 0, ef = 0;
   if (world_rank == 0) {
     potentials::MorsePair morse(D, alpha, r0, rc);
     neighbors::NeighborList cpu_nlist;
     cpu_nlist.build(state.positions.data(), state.natoms, state.box, rc,
                     cfg.r_skin);
-    real pe0 = potentials::compute_pair_forces(state, cpu_nlist, morse);
-    real ke0 = compute_ke_host(state.velocities, state.types, state.masses,
-                               state.natoms);
+    double pe0 = static_cast<double>(
+        potentials::compute_pair_forces(state, cpu_nlist, morse));
+    double ke0 = compute_ke_host(state.velocities, state.types, state.masses,
+                                 state.natoms);
     e0 = pe0 + ke0;
   }
 
@@ -210,13 +215,14 @@ TEST(DistributedPipeline, PipelineNVEConservation) {
     neighbors::NeighborList cpu_nlist;
     cpu_nlist.build(state.positions.data(), state.natoms, state.box, rc,
                     cfg.r_skin);
-    real pe_f = potentials::compute_pair_forces(state, cpu_nlist, morse);
-    real ke_f = compute_ke_host(state.velocities, state.types, state.masses,
-                                state.natoms);
+    double pe_f = static_cast<double>(
+        potentials::compute_pair_forces(state, cpu_nlist, morse));
+    double ke_f = compute_ke_host(state.velocities, state.types, state.masses,
+                                  state.natoms);
     ef = pe_f + ke_f;
 
-    real drift = std::abs((ef - e0) / e0);
-    EXPECT_LT(drift, real{1e-4})
+    double drift = std::abs((ef - e0) / e0);
+    EXPECT_LT(drift, 1e-4)
         << "Distributed Pipeline NVE drift |dE/E| = " << drift;
   }
 }
@@ -259,9 +265,10 @@ TEST(DistributedPipeline, ZoneTimeStepsAdvance) {
   }
 }
 
-static real compute_temperature(real ke, i32 natoms) {
+static double compute_temperature(double ke, i32 natoms) {
   i32 n_dof = 3 * natoms - 3;
-  return real{2} * ke / (static_cast<real>(n_dof) * kBoltzmann);
+  return 2.0 * ke /
+         (static_cast<double>(n_dof) * static_cast<double>(kBoltzmann));
 }
 
 /// Initialize velocities from Maxwell-Boltzmann distribution at given T.
@@ -279,10 +286,11 @@ static void init_velocities(SystemState& state, real t_target, unsigned seed) {
     state.velocities[i].z = sigma * gauss(rng);
   }
 
-  Vec3 com_v{0, 0, 0};
-  real total_mass = 0;
+  VelocityVec com_v{0, 0, 0};
+  double total_mass = 0;
   for (std::size_t i = 0; i < n; ++i) {
-    real mass = state.masses[static_cast<std::size_t>(state.types[i])];
+    double mass =
+        static_cast<double>(state.masses[static_cast<std::size_t>(state.types[i])]);
     com_v.x += mass * state.velocities[i].x;
     com_v.y += mass * state.velocities[i].y;
     com_v.z += mass * state.velocities[i].z;
@@ -297,11 +305,11 @@ static void init_velocities(SystemState& state, real t_target, unsigned seed) {
     state.velocities[i].z -= com_v.z;
   }
 
-  real ke = compute_ke_host(state.velocities, state.types, state.masses,
-                            state.natoms);
-  real t_current = compute_temperature(ke, static_cast<i32>(state.natoms));
+  double ke = compute_ke_host(state.velocities, state.types, state.masses,
+                              state.natoms);
+  double t_current = compute_temperature(ke, static_cast<i32>(state.natoms));
   if (t_current > 0) {
-    real scale = std::sqrt(t_target / t_current);
+    double scale = std::sqrt(static_cast<double>(t_target) / t_current);
     for (std::size_t i = 0; i < n; ++i) {
       state.velocities[i].x *= scale;
       state.velocities[i].y *= scale;
@@ -351,7 +359,7 @@ TEST(DistributedPipeline, NVTTemperatureConverges) {
   sched.run_until(1000);
 
   // Collect temperature over next 1000 steps, sampling every 100.
-  std::vector<real> temps;
+  std::vector<double> temps;
   for (i32 step = 1100; step <= 2000; step += 100) {
     sched.run_until(step);
     sched.download(state.positions.data(), state.velocities.data(),
@@ -359,24 +367,23 @@ TEST(DistributedPipeline, NVTTemperatureConverges) {
                    static_cast<i32>(state.natoms));
 
     if (world_rank == 0) {
-      real ke = compute_ke_host(state.velocities, state.types, state.masses,
-                                state.natoms);
-      real t = compute_temperature(ke, static_cast<i32>(state.natoms));
+      double ke = compute_ke_host(state.velocities, state.types, state.masses,
+                                  state.natoms);
+      double t = compute_temperature(ke, static_cast<i32>(state.natoms));
       temps.push_back(t);
     }
   }
 
   if (world_rank == 0) {
-    real t_mean = std::accumulate(temps.begin(), temps.end(), real{0}) /
-                  static_cast<real>(temps.size());
+    double t_mean = std::accumulate(temps.begin(), temps.end(), 0.0) /
+                    static_cast<double>(temps.size());
 
     // With working thermostat, T should rise from 100K toward 500K.
     // Allow 30% tolerance for 256-atom system.
-    real rel_err = std::abs(t_mean - t_target) / t_target;
+    double rel_err = std::abs(t_mean - static_cast<double>(t_target)) / t_target;
     printf("  NVT multi-rank: <T> = %.1f K, target = %.1f K, rel_err = %.3f\n",
-           static_cast<double>(t_mean), static_cast<double>(t_target),
-           static_cast<double>(rel_err));
-    EXPECT_LT(rel_err, real{0.30})
+           t_mean, static_cast<double>(t_target), rel_err);
+    EXPECT_LT(rel_err, 0.30)
         << "<T> = " << t_mean << " K, target = " << t_target
         << " K, rel_err = " << rel_err
         << " (if rel_err >> 0.30, thermostat is likely no-op — atom range bug)";

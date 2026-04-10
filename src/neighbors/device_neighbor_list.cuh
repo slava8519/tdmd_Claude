@@ -18,14 +18,14 @@ namespace tdmd::neighbors {
 class DeviceNeighborList {
  public:
   /// @brief Build the neighbor list on GPU.
-  /// @param d_positions Device pointer to Vec3 positions.
+  /// @param d_positions Device pointer to PositionVec (Vec3D) positions.
   /// @param natoms Number of atoms.
   /// @param box Simulation box (host-side).
   /// @param r_cut Force cutoff radius.
   /// @param r_skin Skin distance.
   /// @param stream CUDA stream (default 0 = legacy default stream).
-  void build(const Vec3* d_positions, i64 natoms, const Box& box, real r_cut,
-             real r_skin, cudaStream_t stream = 0);
+  void build(const PositionVec* d_positions, i64 natoms, const Box& box,
+             real r_cut, real r_skin, cudaStream_t stream = 0);
 
   /// @brief Device pointer to neighbor indices (flat CSR).
   [[nodiscard]] const i32* d_neighbors() const noexcept {

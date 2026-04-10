@@ -23,25 +23,30 @@ real compute_pair_forces(SystemState& state,
 
   for (i64 i = 0; i < natoms; ++i) {
     const auto si = static_cast<std::size_t>(i);
-    const Vec3 pi = state.positions[si];
+    // Position load in double (PositionVec = Vec3D per ADR 0007).
+    const PositionVec pi = state.positions[si];
     const i32 cnt = nlist.count(i);
     const i32* nbrs = nlist.neighbors_of(i);
 
     for (i32 k = 0; k < cnt; ++k) {
       const auto j = static_cast<std::size_t>(nbrs[k]);
-      // LAMMPS convention: delta = r_i - r_j
-      Vec3 delta = pi - state.positions[j];
+      // LAMMPS convention: delta = r_i - r_j (double subtract).
+      Vec3D delta = pi - state.positions[j];
       delta = minimum_image(delta, box_size, periodic);
-      const real r2 = length_sq(delta);
+      const double r2_d = length_sq(delta);
+      const real r2 = static_cast<real>(r2_d);
 
       real energy, fpair;
       pair.compute(r2, energy, fpair);
 
       total_energy += energy;
 
-      // fpair = -dU/dr / r, so force on i from j = fpair * delta
-      // (delta points from i to j)
-      Vec3 fij = {fpair * delta.x, fpair * delta.y, fpair * delta.z};
+      // Force in force_t (float in mixed). Cast delta components for the
+      // multiplication.
+      const force_t fp_f = static_cast<force_t>(fpair);
+      ForceVec fij{fp_f * static_cast<force_t>(delta.x),
+                   fp_f * static_cast<force_t>(delta.y),
+                   fp_f * static_cast<force_t>(delta.z)};
       state.forces[si] += fij;
       state.forces[j] -= fij;  // Newton 3rd
     }

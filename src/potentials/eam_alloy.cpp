@@ -199,16 +199,17 @@ real EamAlloy::compute_forces(SystemState& state,
   // Pass 1: gather electron density rho_i = sum_j rho_j(r_ij).
   for (i64 i = 0; i < natoms; ++i) {
     auto si = static_cast<std::size_t>(i);
-    const Vec3 pi = state.positions[si];
+    // Position load in double (PositionVec = Vec3D per ADR 0007).
+    const PositionVec pi = state.positions[si];
     const i32 ti = state.types[si] - 1;  // 0-based type
     const i32 cnt = nlist.count(i);
     const i32* nbrs = nlist.neighbors_of(i);
 
     for (i32 k = 0; k < cnt; ++k) {
       auto j = static_cast<std::size_t>(nbrs[k]);
-      Vec3 delta = pi - state.positions[j];
+      Vec3D delta = pi - state.positions[j];
       delta = minimum_image(delta, box_size, periodic);
-      real r2 = length_sq(delta);
+      real r2 = static_cast<real>(length_sq(delta));
       if (r2 >= rc_sq) continue;
 
       real r = std::sqrt(r2);
@@ -234,17 +235,17 @@ real EamAlloy::compute_forces(SystemState& state,
   real energy_pair = real{0};
   for (i64 i = 0; i < natoms; ++i) {
     auto si = static_cast<std::size_t>(i);
-    const Vec3 pi = state.positions[si];
+    const PositionVec pi = state.positions[si];
     const i32 ti = state.types[si] - 1;
     const i32 cnt = nlist.count(i);
     const i32* nbrs = nlist.neighbors_of(i);
 
     for (i32 k = 0; k < cnt; ++k) {
       auto j = static_cast<std::size_t>(nbrs[k]);
-      // LAMMPS convention: delta = r_i - r_j.
-      Vec3 delta = pi - state.positions[j];
+      // LAMMPS convention: delta = r_i - r_j (double subtract).
+      Vec3D delta = pi - state.positions[j];
       delta = minimum_image(delta, box_size, periodic);
-      real r2 = length_sq(delta);
+      real r2 = static_cast<real>(length_sq(delta));
       if (r2 >= rc_sq) continue;
 
       real r = std::sqrt(r2);
@@ -267,7 +268,10 @@ real EamAlloy::compute_forces(SystemState& state,
       real fpair =
           -(dphi_dr + fp[si] * drho_j_dr + fp[j] * drho_i_dr) / r;
 
-      Vec3 fij = {fpair * delta.x, fpair * delta.y, fpair * delta.z};
+      const force_t fp_f = static_cast<force_t>(fpair);
+      ForceVec fij{fp_f * static_cast<force_t>(delta.x),
+                   fp_f * static_cast<force_t>(delta.y),
+                   fp_f * static_cast<force_t>(delta.z)};
       state.forces[si] += fij;
       state.forces[j] -= fij;
     }

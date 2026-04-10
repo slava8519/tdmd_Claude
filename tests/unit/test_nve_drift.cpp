@@ -51,15 +51,15 @@ static void init_velocities(SystemState& s, real temp, unsigned seed) {
   }
 
   // Remove net momentum.
-  Vec3 total_mom = {0, 0, 0};
-  real total_mass = 0;
+  VelocityVec total_mom = {0, 0, 0};
+  double total_mass = 0;
   for (i64 i = 0; i < s.natoms; ++i) {
     auto si = static_cast<std::size_t>(i);
-    real mass = s.masses[static_cast<std::size_t>(s.types[si])];
+    double mass = s.masses[static_cast<std::size_t>(s.types[si])];
     total_mom += mass * s.velocities[si];
     total_mass += mass;
   }
-  Vec3 vcm = (real{1} / total_mass) * total_mom;
+  VelocityVec vcm = (1.0 / total_mass) * total_mom;
   for (i64 i = 0; i < s.natoms; ++i) {
     s.velocities[static_cast<std::size_t>(i)] -= vcm;
   }

@@ -34,7 +34,7 @@ struct MorseParams {
 /// @param params      Morse parameters.
 /// @param d_energy    Optional device pointer to accumulate total PE (may be nullptr).
 /// @param stream      CUDA stream (default 0 = legacy default stream).
-void compute_morse_gpu(const Vec3* d_positions, Vec3* d_forces,
+void compute_morse_gpu(const PositionVec* d_positions, ForceVec* d_forces,
                        const i32* d_neighbors, const i32* d_offsets,
                        const i32* d_counts, i32 natoms, const Box& box,
                        const MorseParams& params, accum_t* d_energy,

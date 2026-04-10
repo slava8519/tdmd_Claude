@@ -41,17 +41,18 @@ PipelineScheduler::PipelineScheduler(const Box& box, i32 natoms,
   }
 }
 
-void PipelineScheduler::upload(const Vec3* positions, const Vec3* velocities,
-                               const Vec3* forces, const i32* types,
+void PipelineScheduler::upload(const PositionVec* positions,
+                               const VelocityVec* velocities,
+                               const ForceVec* forces, const i32* types,
                                const i32* ids, const real* masses,
                                i32 n_masses) {
   auto n = static_cast<std::size_t>(natoms_);
 
   // Sort atoms by zone on host first.
   // Make temporary copies for reordering.
-  std::vector<Vec3> h_pos(positions, positions + n);
-  std::vector<Vec3> h_vel(velocities, velocities + n);
-  std::vector<Vec3> h_forces(forces, forces + n);
+  std::vector<PositionVec> h_pos(positions, positions + n);
+  std::vector<VelocityVec> h_vel(velocities, velocities + n);
+  std::vector<ForceVec> h_forces(forces, forces + n);
   std::vector<i32> h_types(types, types + n);
   std::vector<i32> h_ids(ids, ids + n);
 
@@ -296,8 +297,8 @@ i32 PipelineScheduler::min_time_step() const noexcept {
   return mn;
 }
 
-void PipelineScheduler::download(Vec3* positions, Vec3* velocities,
-                                 Vec3* forces, i32* types, i32* ids,
+void PipelineScheduler::download(PositionVec* positions, VelocityVec* velocities,
+                                 ForceVec* forces, i32* types, i32* ids,
                                  i32 natoms) const {
   auto n = static_cast<std::size_t>(natoms);
   d_pos_.copy_to_host(positions, n);

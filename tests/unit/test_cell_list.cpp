@@ -18,7 +18,7 @@ TEST(CellList, EveryAtomInExactlyOneCell) {
   box.lo = {0, 0, 0};
   box.hi = {10, 10, 10};
 
-  std::vector<Vec3> pos = {
+  std::vector<PositionVec> pos = {
       {1, 1, 1}, {5, 1, 1}, {1, 5, 1}, {1, 1, 5},
       {5, 5, 1}, {5, 1, 5}, {1, 5, 5}, {5, 5, 5},
   };
@@ -46,13 +46,13 @@ TEST(CellList, CellSizeAtLeastRlist) {
   box.lo = {0, 0, 0};
   box.hi = {20, 20, 20};
 
-  std::vector<Vec3> pos = {{1, 1, 1}, {10, 10, 10}};
+  std::vector<PositionVec> pos = {{1, 1, 1}, {10, 10, 10}};
 
   CellList cl;
   cl.build(pos.data(), 2, box, real{5.5});
 
   // Cell side should be >= r_list (may be slightly larger due to integer division).
-  Vec3 cs = cl.cell_size();
+  auto cs = cl.cell_size();
   EXPECT_GE(cs.x, real{5.5} - real{0.01});
   EXPECT_GE(cs.y, real{5.5} - real{0.01});
   EXPECT_GE(cs.z, real{5.5} - real{0.01});
@@ -65,7 +65,7 @@ TEST(CellList, MinimumThreeCellsPerAxis) {
   box.lo = {0, 0, 0};
   box.hi = {6, 6, 6};
 
-  std::vector<Vec3> pos = {{1, 1, 1}, {3, 3, 3}};
+  std::vector<PositionVec> pos = {{1, 1, 1}, {3, 3, 3}};
 
   CellList cl;
   cl.build(pos.data(), 2, box, real{5.0});

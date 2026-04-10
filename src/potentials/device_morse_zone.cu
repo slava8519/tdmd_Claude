@@ -12,11 +12,12 @@ namespace tdmd::potentials {
 namespace {
 
 __global__ void morse_force_zone_kernel(
-    const Vec3* __restrict__ positions, Vec3* __restrict__ forces,
-    const i32* __restrict__ neighbors, const i32* __restrict__ offsets,
-    const i32* __restrict__ counts, i32 first_atom, i32 atom_count,
-    Vec3D box_lo, Vec3D box_size, bool pbc_x, bool pbc_y, bool pbc_z,
-    MorseParams params, accum_t* __restrict__ d_energy) {
+    const PositionVec* __restrict__ positions,
+    ForceVec* __restrict__ forces, const i32* __restrict__ neighbors,
+    const i32* __restrict__ offsets, const i32* __restrict__ counts,
+    i32 first_atom, i32 atom_count, Vec3D box_lo, Vec3D box_size, bool pbc_x,
+    bool pbc_y, bool pbc_z, MorseParams params,
+    accum_t* __restrict__ d_energy) {
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= atom_count) return;
 
@@ -93,10 +94,10 @@ __global__ void morse_force_zone_kernel(
 
 }  // namespace
 
-void compute_morse_gpu_zone(const Vec3* d_positions, Vec3* d_forces,
-                            const i32* d_neighbors, const i32* d_offsets,
-                            const i32* d_counts, i32 first_atom,
-                            i32 atom_count, const Box& box,
+void compute_morse_gpu_zone(const PositionVec* d_positions,
+                            ForceVec* d_forces, const i32* d_neighbors,
+                            const i32* d_offsets, const i32* d_counts,
+                            i32 first_atom, i32 atom_count, const Box& box,
                             const MorseParams& params, accum_t* d_energy,
                             cudaStream_t stream) {
   if (atom_count == 0) return;

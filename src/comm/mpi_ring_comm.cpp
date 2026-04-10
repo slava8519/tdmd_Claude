@@ -9,12 +9,14 @@
 
 namespace tdmd::comm {
 
-// Buffer layout: [i32 zone_id | i32 time_step | i32 natoms | Vec3[] pos | Vec3[] vel]
+// Buffer layout:
+//   [i32 zone_id | i32 time_step | i32 natoms |
+//    PositionVec[] pos | VelocityVec[] vel]
 static constexpr std::size_t kHeaderBytes = 3 * sizeof(i32);
 
 std::size_t MpiRingComm::buf_size(i32 natoms) {
-  return kHeaderBytes +
-         static_cast<std::size_t>(natoms) * 2 * sizeof(Vec3);
+  return kHeaderBytes + static_cast<std::size_t>(natoms) *
+                            (sizeof(PositionVec) + sizeof(VelocityVec));
 }
 
 void MpiRingComm::pack(const ZoneMessage& msg, std::vector<char>& buf) {
@@ -29,9 +31,9 @@ void MpiRingComm::pack(const ZoneMessage& msg, std::vector<char>& buf) {
   p += sizeof(i32);
 
   auto n = static_cast<std::size_t>(msg.natoms);
-  std::memcpy(p, msg.positions.data(), n * sizeof(Vec3));
-  p += static_cast<std::ptrdiff_t>(n * sizeof(Vec3));
-  std::memcpy(p, msg.velocities.data(), n * sizeof(Vec3));
+  std::memcpy(p, msg.positions.data(), n * sizeof(PositionVec));
+  p += static_cast<std::ptrdiff_t>(n * sizeof(PositionVec));
+  std::memcpy(p, msg.velocities.data(), n * sizeof(VelocityVec));
 }
 
 void MpiRingComm::unpack(const std::vector<char>& buf, i32 /*nbytes*/,
@@ -48,9 +50,9 @@ void MpiRingComm::unpack(const std::vector<char>& buf, i32 /*nbytes*/,
   auto n = static_cast<std::size_t>(msg.natoms);
   msg.positions.resize(n);
   msg.velocities.resize(n);
-  std::memcpy(msg.positions.data(), p, n * sizeof(Vec3));
-  p += static_cast<std::ptrdiff_t>(n * sizeof(Vec3));
-  std::memcpy(msg.velocities.data(), p, n * sizeof(Vec3));
+  std::memcpy(msg.positions.data(), p, n * sizeof(PositionVec));
+  p += static_cast<std::ptrdiff_t>(n * sizeof(PositionVec));
+  std::memcpy(msg.velocities.data(), p, n * sizeof(VelocityVec));
 }
 
 void MpiRingComm::init(MPI_Comm comm) {

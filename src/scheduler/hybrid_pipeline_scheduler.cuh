@@ -73,14 +73,14 @@ class HybridPipelineScheduler {
 
   ~HybridPipelineScheduler();
 
-  void upload(const Vec3* positions, const Vec3* velocities,
-              const Vec3* forces, const i32* types, const i32* ids,
+  void upload(const PositionVec* positions, const VelocityVec* velocities,
+              const ForceVec* forces, const i32* types, const i32* ids,
               const real* masses, i32 n_masses);
 
   void run_until(i32 target_step);
 
-  void download(Vec3* positions, Vec3* velocities, Vec3* forces, i32* types,
-                i32* ids, i32 natoms) const;
+  void download(PositionVec* positions, VelocityVec* velocities,
+                ForceVec* forces, i32* types, i32* ids, i32 natoms) const;
 
   [[nodiscard]] const domain::ZonePartition& partition() const noexcept {
     return partition_;
@@ -120,14 +120,18 @@ class HybridPipelineScheduler {
   StreamPool streams_;
 
   // Device buffers: sized for n_owned + ghost_capacity.
-  DeviceBuffer<Vec3> d_pos_, d_vel_, d_forces_;
+  DeviceBuffer<PositionVec> d_pos_;
+  DeviceBuffer<VelocityVec> d_vel_;
+  DeviceBuffer<ForceVec> d_forces_;
   DeviceBuffer<i32> d_types_, d_ids_;
   DeviceBuffer<real> d_masses_;
   neighbors::DeviceNeighborList nlist_;
   bool needs_rebuild_{true};
 
   // Host copies for owned atoms (needed for zone reorder and exchanges).
-  std::vector<Vec3> h_pos_, h_vel_, h_forces_;
+  std::vector<PositionVec> h_pos_;
+  std::vector<VelocityVec> h_vel_;
+  std::vector<ForceVec> h_forces_;
   std::vector<i32> h_types_, h_ids_;
 
   std::vector<i32> zone_stream_;

@@ -22,11 +22,13 @@ struct SystemState {
   Box box;
 
   // Per-atom arrays (SoA, length = natoms).
-  std::vector<Vec3> positions;
-  std::vector<Vec3> velocities;
-  std::vector<Vec3> forces;
-  std::vector<i32>  types;
-  std::vector<i32>  ids;  // stable global IDs, used for LAMMPS A/B comparisons
+  // Per ADR 0007: positions and velocities always stored in double; forces
+  // are float in mixed mode and double in fp64 mode.
+  std::vector<PositionVec> positions;   // Vec3D in both modes
+  std::vector<VelocityVec> velocities;  // Vec3D in both modes
+  std::vector<ForceVec>    forces;      // Vec3F (mixed) / Vec3D (fp64)
+  std::vector<i32>         types;
+  std::vector<i32>         ids;  // stable global IDs, used for LAMMPS A/B comparisons
 
   // Per-type, host-side.
   std::vector<real>        masses;

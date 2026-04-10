@@ -39,12 +39,13 @@ TEST(DeviceMorse, MatchesCPUForces256Atoms) {
   real cpu_energy = potentials::compute_pair_forces(state, cpu_nlist, morse);
 
   // Save CPU forces.
-  std::vector<Vec3> cpu_forces = state.forces;
+  std::vector<ForceVec> cpu_forces = state.forces;
 
   // --- GPU forces ---
   auto n = static_cast<std::size_t>(state.natoms);
 
-  DeviceBuffer<Vec3> d_pos(n), d_forces(n);
+  DeviceBuffer<PositionVec> d_pos(n);
+  DeviceBuffer<ForceVec> d_forces(n);
   d_pos.copy_from_host(state.positions.data(), n);
   d_forces.zero();
 
@@ -64,7 +65,7 @@ TEST(DeviceMorse, MatchesCPUForces256Atoms) {
   TDMD_CUDA_CHECK(cudaDeviceSynchronize());
 
   // Download GPU forces and energy.
-  std::vector<Vec3> gpu_forces(n);
+  std::vector<ForceVec> gpu_forces(n);
   d_forces.copy_to_host(gpu_forces.data(), n);
 
   accum_t gpu_energy = 0;

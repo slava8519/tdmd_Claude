@@ -19,15 +19,17 @@ namespace tdmd::scheduler {
 
 // ---- Pack / unpack helpers for MPI exchange ----
 
-// Buffer layout per zone: [i32 zone_id | i32 time_step | i32 natoms | Vec3[] pos | Vec3[] vel]
+// Buffer layout per zone: [i32 zone_id | i32 time_step | i32 natoms |
+//                          PositionVec[] pos | VelocityVec[] vel]
 static constexpr std::size_t kHeaderBytes = 3 * sizeof(i32);
 
 static std::size_t packed_zone_size(i32 natoms) {
-  return kHeaderBytes + static_cast<std::size_t>(natoms) * 2 * sizeof(Vec3);
+  return kHeaderBytes + static_cast<std::size_t>(natoms) *
+                            (sizeof(PositionVec) + sizeof(VelocityVec));
 }
 
 static void pack_zone(char* buf, i32 zone_id, i32 time_step, i32 natoms,
-                       const Vec3* pos, const Vec3* vel) {
+                      const PositionVec* pos, const VelocityVec* vel) {
   std::memcpy(buf, &zone_id, sizeof(i32));
   buf += sizeof(i32);
   std::memcpy(buf, &time_step, sizeof(i32));
@@ -35,13 +37,13 @@ static void pack_zone(char* buf, i32 zone_id, i32 time_step, i32 natoms,
   std::memcpy(buf, &natoms, sizeof(i32));
   buf += sizeof(i32);
   auto n = static_cast<std::size_t>(natoms);
-  std::memcpy(buf, pos, n * sizeof(Vec3));
-  buf += static_cast<std::ptrdiff_t>(n * sizeof(Vec3));
-  std::memcpy(buf, vel, n * sizeof(Vec3));
+  std::memcpy(buf, pos, n * sizeof(PositionVec));
+  buf += static_cast<std::ptrdiff_t>(n * sizeof(PositionVec));
+  std::memcpy(buf, vel, n * sizeof(VelocityVec));
 }
 
 static void unpack_zone(const char* buf, i32& zone_id, i32& time_step,
-                         i32& natoms, Vec3* pos, Vec3* vel) {
+                        i32& natoms, PositionVec* pos, VelocityVec* vel) {
   std::memcpy(&zone_id, buf, sizeof(i32));
   buf += sizeof(i32);
   std::memcpy(&time_step, buf, sizeof(i32));
@@ -49,9 +51,9 @@ static void unpack_zone(const char* buf, i32& zone_id, i32& time_step,
   std::memcpy(&natoms, buf, sizeof(i32));
   buf += sizeof(i32);
   auto n = static_cast<std::size_t>(natoms);
-  std::memcpy(pos, buf, n * sizeof(Vec3));
-  buf += static_cast<std::ptrdiff_t>(n * sizeof(Vec3));
-  std::memcpy(vel, buf, n * sizeof(Vec3));
+  std::memcpy(pos, buf, n * sizeof(PositionVec));
+  buf += static_cast<std::ptrdiff_t>(n * sizeof(PositionVec));
+  std::memcpy(vel, buf, n * sizeof(VelocityVec));
 }
 
 // ---- Constructor ----
@@ -140,13 +142,14 @@ i32 DistributedPipelineScheduler::zone_time_step(i32 z_id) const {
 }
 
 void DistributedPipelineScheduler::upload(
-    const Vec3* positions, const Vec3* velocities, const Vec3* forces,
-    const i32* types, const i32* ids, const real* masses, i32 n_masses) {
+    const PositionVec* positions, const VelocityVec* velocities,
+    const ForceVec* forces, const i32* types, const i32* ids,
+    const real* masses, i32 n_masses) {
   auto n = static_cast<std::size_t>(natoms_);
 
-  std::vector<Vec3> h_pos(positions, positions + n);
-  std::vector<Vec3> h_vel(velocities, velocities + n);
-  std::vector<Vec3> h_forces(forces, forces + n);
+  std::vector<PositionVec> h_pos(positions, positions + n);
+  std::vector<VelocityVec> h_vel(velocities, velocities + n);
+  std::vector<ForceVec> h_forces(forces, forces + n);
   std::vector<i32> h_types(types, types + n);
   std::vector<i32> h_ids(ids, ids + n);
 
@@ -317,8 +320,8 @@ void DistributedPipelineScheduler::exchange_boundary_data() {
       i32 count = z.natoms_in_zone;
 
       // Download zone data from GPU.
-      std::vector<Vec3> pos(static_cast<std::size_t>(count));
-      std::vector<Vec3> vel(static_cast<std::size_t>(count));
+      std::vector<PositionVec> pos(static_cast<std::size_t>(count));
+      std::vector<VelocityVec> vel(static_cast<std::size_t>(count));
       d_pos_.copy_to_host(pos.data(), static_cast<std::size_t>(count),
                           static_cast<std::size_t>(z.atom_offset));
       d_vel_.copy_to_host(vel.data(), static_cast<std::size_t>(count),
@@ -342,8 +345,8 @@ void DistributedPipelineScheduler::exchange_boundary_data() {
       std::memcpy(&ts, p + sizeof(i32), sizeof(i32));
       std::memcpy(&nat, p + 2 * sizeof(i32), sizeof(i32));
 
-      std::vector<Vec3> pos(static_cast<std::size_t>(nat));
-      std::vector<Vec3> vel(static_cast<std::size_t>(nat));
+      std::vector<PositionVec> pos(static_cast<std::size_t>(nat));
+      std::vector<VelocityVec> vel(static_cast<std::size_t>(nat));
       unpack_zone(p, z_id, ts, nat, pos.data(), vel.data());
       p += static_cast<std::ptrdiff_t>(packed_zone_size(nat));
 
@@ -493,9 +496,10 @@ i32 DistributedPipelineScheduler::min_global_time_step() {
   return global_min;
 }
 
-void DistributedPipelineScheduler::download(Vec3* positions, Vec3* velocities,
-                                            Vec3* forces, i32* types, i32* ids,
-                                            i32 natoms) const {
+void DistributedPipelineScheduler::download(PositionVec* positions,
+                                            VelocityVec* velocities,
+                                            ForceVec* forces, i32* types,
+                                            i32* ids, i32 natoms) const {
   auto n = static_cast<std::size_t>(natoms);
   d_pos_.copy_to_host(positions, n);
   d_vel_.copy_to_host(velocities, n);

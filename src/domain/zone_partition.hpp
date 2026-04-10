@@ -35,8 +35,8 @@ class ZonePartition {
   /// @param types Per-atom types (reordered in-place).
   /// @param ids Per-atom ids (reordered in-place).
   /// @param natoms Number of atoms.
-  void assign_atoms(Vec3* positions, Vec3* velocities, Vec3* forces,
-                    i32* types, i32* ids, i64 natoms);
+  void assign_atoms(PositionVec* positions, VelocityVec* velocities,
+                    ForceVec* forces, i32* types, i32* ids, i64 natoms);
 
   [[nodiscard]] i32 n_zones() const noexcept {
     return static_cast<i32>(zones_.size());

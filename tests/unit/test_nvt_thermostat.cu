@@ -29,22 +29,24 @@
 using namespace tdmd;
 using namespace tdmd::testing;
 
-static real compute_ke_host(const std::vector<Vec3>& velocities,
-                            const std::vector<i32>& types,
-                            const std::vector<real>& masses, i64 natoms) {
-  real ke = 0;
+static double compute_ke_host(const std::vector<VelocityVec>& velocities,
+                              const std::vector<i32>& types,
+                              const std::vector<real>& masses, i64 natoms) {
+  double ke = 0;
   for (i64 i = 0; i < natoms; ++i) {
     auto si = static_cast<std::size_t>(i);
-    real mass = masses[static_cast<std::size_t>(types[si])];
-    const Vec3& v = velocities[si];
-    ke += real{0.5} * mass * kMvv2e * (v.x * v.x + v.y * v.y + v.z * v.z);
+    double mass =
+        static_cast<double>(masses[static_cast<std::size_t>(types[si])]);
+    const VelocityVec& v = velocities[si];
+    ke += 0.5 * mass * static_cast<double>(kMvv2e) *
+          (v.x * v.x + v.y * v.y + v.z * v.z);
   }
   return ke;
 }
 
-static real compute_temperature(real ke, i32 natoms) {
+static double compute_temperature(double ke, i32 natoms) {
   i32 n_dof = 3 * natoms - 3;
-  return real{2} * ke / (static_cast<real>(n_dof) * kBoltzmann);
+  return 2.0 * ke / (static_cast<double>(n_dof) * static_cast<double>(kBoltzmann));
 }
 
 /// Initialize velocities from Maxwell-Boltzmann distribution at given T.
@@ -64,10 +66,11 @@ static void init_velocities(SystemState& state, real t_target, unsigned seed) {
   }
 
   // Remove COM momentum.
-  Vec3 com_v{0, 0, 0};
-  real total_mass = 0;
+  VelocityVec com_v{0, 0, 0};
+  double total_mass = 0;
   for (std::size_t i = 0; i < n; ++i) {
-    real mass = state.masses[static_cast<std::size_t>(state.types[i])];
+    double mass =
+        static_cast<double>(state.masses[static_cast<std::size_t>(state.types[i])]);
     com_v.x += mass * state.velocities[i].x;
     com_v.y += mass * state.velocities[i].y;
     com_v.z += mass * state.velocities[i].z;
@@ -83,11 +86,11 @@ static void init_velocities(SystemState& state, real t_target, unsigned seed) {
   }
 
   // Rescale to exact target temperature.
-  real ke = compute_ke_host(state.velocities, state.types, state.masses,
-                            state.natoms);
-  real t_current = compute_temperature(ke, static_cast<i32>(state.natoms));
+  double ke = compute_ke_host(state.velocities, state.types, state.masses,
+                              state.natoms);
+  double t_current = compute_temperature(ke, static_cast<i32>(state.natoms));
   if (t_current > 0) {
-    real scale = std::sqrt(t_target / t_current);
+    double scale = std::sqrt(static_cast<double>(t_target) / t_current);
     for (std::size_t i = 0; i < n; ++i) {
       state.velocities[i].x *= scale;
       state.velocities[i].y *= scale;
@@ -130,34 +133,34 @@ TEST(NVTThermostat, TemperatureConvergesToTarget) {
   sched.run_until(1000);
 
   // Collect temperature over next 4000 steps, sampling every 100.
-  std::vector<real> temps;
+  std::vector<double> temps;
   for (i32 step = 1100; step <= 5000; step += 100) {
     sched.run_until(step);
     sched.download(state.positions.data(), state.velocities.data(),
                    state.forces.data(), state.types.data(), state.ids.data(),
                    natoms);
 
-    real ke = compute_ke_host(state.velocities, state.types, state.masses,
-                              state.natoms);
-    real t = compute_temperature(ke, natoms);
+    double ke = compute_ke_host(state.velocities, state.types, state.masses,
+                                state.natoms);
+    double t = compute_temperature(ke, natoms);
     temps.push_back(t);
   }
 
   // Compute ⟨T⟩.
-  real t_mean = std::accumulate(temps.begin(), temps.end(), real{0}) /
-                static_cast<real>(temps.size());
+  double t_mean = std::accumulate(temps.begin(), temps.end(), 0.0) /
+                  static_cast<double>(temps.size());
 
   // ⟨T⟩ should be within 15% of target for a 256-atom system.
-  real rel_err = std::abs(t_mean - t_target) / t_target;
-  EXPECT_LT(rel_err, real{0.15})
+  double rel_err = std::abs(t_mean - static_cast<double>(t_target)) / t_target;
+  EXPECT_LT(rel_err, 0.15)
       << "⟨T⟩ = " << t_mean << " K, target = " << t_target
       << " K, rel_err = " << rel_err;
 
   // Temperature should stay in a reasonable range.
   for (std::size_t i = 0; i < temps.size(); ++i) {
-    EXPECT_GT(temps[i], real{100.0})
+    EXPECT_GT(temps[i], 100.0)
         << "Temperature too low at sample " << i << ": " << temps[i];
-    EXPECT_LT(temps[i], real{600.0})
+    EXPECT_LT(temps[i], 600.0)
         << "Temperature too high at sample " << i << ": " << temps[i];
   }
 }
@@ -174,7 +177,7 @@ TEST(NVTThermostat, DeviceKEMatchesHost) {
   auto n = static_cast<std::size_t>(natoms);
 
   // Upload velocities, types, masses to device.
-  DeviceBuffer<Vec3> d_vel(n);
+  DeviceBuffer<VelocityVec> d_vel(n);
   DeviceBuffer<i32> d_types(n);
   DeviceBuffer<real> d_masses(state.masses.size());
 
@@ -212,7 +215,7 @@ TEST(NVTThermostat, DeterministicReproducibility) {
   cfg.t_period = real{0.1};
   cfg.nhc_length = 3;
 
-  auto run_nvt = [&](i32 nsteps) -> std::vector<Vec3> {
+  auto run_nvt = [&](i32 nsteps) -> std::vector<PositionVec> {
     SystemState state = io::read_lammps_data(data_dir + "/cu_fcc_256.data");
     init_velocities(state, real{300.0}, 42);  // same seed both runs
     auto natoms = static_cast<i32>(state.natoms);
@@ -232,7 +235,7 @@ TEST(NVTThermostat, DeterministicReproducibility) {
   auto pos2 = run_nvt(500);
 
   ASSERT_EQ(pos1.size(), pos2.size());
-  real max_diff = 0;
+  double max_diff = 0;
   for (std::size_t i = 0; i < pos1.size(); ++i) {
     max_diff = std::max(max_diff, std::abs(pos1[i].x - pos2[i].x));
     max_diff = std::max(max_diff, std::abs(pos1[i].y - pos2[i].y));
@@ -240,7 +243,7 @@ TEST(NVTThermostat, DeterministicReproducibility) {
   }
   // Allow small FP differences from GPU KE reduction (different block sums
   // may accumulate in slightly different order across runs).
-  EXPECT_LT(max_diff, kPositionTolerance)
+  EXPECT_LT(max_diff, static_cast<double>(kPositionTolerance))
       << "Deterministic NVT max position diff: " << max_diff;
 }
 
@@ -254,20 +257,20 @@ TEST(AdaptiveDt, DeviceVmaxMatchesHost) {
   auto n = static_cast<std::size_t>(natoms);
 
   // Host v_max.
-  real host_vmax = 0;
+  double host_vmax = 0;
   for (std::size_t i = 0; i < n; ++i) {
-    const Vec3& v = state.velocities[i];
-    real speed2 = v.x * v.x + v.y * v.y + v.z * v.z;
+    const VelocityVec& v = state.velocities[i];
+    double speed2 = v.x * v.x + v.y * v.y + v.z * v.z;
     host_vmax = std::max(host_vmax, speed2);
   }
   host_vmax = std::sqrt(host_vmax);
 
   // Device v_max.
-  DeviceBuffer<Vec3> d_vel(n);
+  DeviceBuffer<VelocityVec> d_vel(n);
   d_vel.copy_from_host(state.velocities.data(), n);
   accum_t dev_vmax = integrator::device_compute_vmax(d_vel.data(), natoms);
 
-  EXPECT_GT(host_vmax, real{0});
+  EXPECT_GT(host_vmax, 0.0);
   accum_t rel_diff = std::abs(dev_vmax - static_cast<accum_t>(host_vmax)) /
                      static_cast<accum_t>(host_vmax);
   EXPECT_LT(rel_diff, kReductionCrossTolerance)
@@ -313,10 +316,11 @@ TEST(AdaptiveDt, StableNVETrajectory) {
   neighbors::NeighborList cpu_nlist;
   cpu_nlist.build(state.positions.data(), state.natoms, state.box, rc,
                   cfg.r_skin);
-  real pe0 = potentials::compute_pair_forces(state, cpu_nlist, morse);
-  real ke0 = compute_ke_host(state.velocities, state.types, state.masses,
-                             state.natoms);
-  real e0 = pe0 + ke0;
+  double pe0 = static_cast<double>(
+      potentials::compute_pair_forces(state, cpu_nlist, morse));
+  double ke0 = compute_ke_host(state.velocities, state.types, state.masses,
+                               state.natoms);
+  double e0 = pe0 + ke0;
 
   // Run 1000 steps with adaptive dt.
   sched.run_until(1000);
@@ -326,14 +330,15 @@ TEST(AdaptiveDt, StableNVETrajectory) {
 
   cpu_nlist.build(state.positions.data(), state.natoms, state.box, rc,
                   cfg.r_skin);
-  real pe_f = potentials::compute_pair_forces(state, cpu_nlist, morse);
-  real ke_f = compute_ke_host(state.velocities, state.types, state.masses,
-                              state.natoms);
-  real ef = pe_f + ke_f;
+  double pe_f = static_cast<double>(
+      potentials::compute_pair_forces(state, cpu_nlist, morse));
+  double ke_f = compute_ke_host(state.velocities, state.types, state.masses,
+                                state.natoms);
+  double ef = pe_f + ke_f;
 
-  real drift = std::abs((ef - e0) / e0);
+  double drift = std::abs((ef - e0) / e0);
   // Adaptive dt breaks symplecticity slightly (varying step size), so expect
   // larger drift than fixed dt. 1e-2 is the threshold for a stable trajectory.
-  EXPECT_LT(drift, real{1e-2})
+  EXPECT_LT(drift, 1e-2)
       << "Adaptive Δt NVE drift |dE/E| = " << drift;
 }

@@ -56,8 +56,8 @@ class FastPipelineScheduler {
   FastPipelineScheduler& operator=(const FastPipelineScheduler&) = delete;
 
   /// @brief Upload host arrays to device. Must be called before run_until().
-  void upload(const Vec3* positions, const Vec3* velocities,
-              const Vec3* forces, const i32* types, const i32* ids,
+  void upload(const PositionVec* positions, const VelocityVec* velocities,
+              const ForceVec* forces, const i32* types, const i32* ids,
               const real* masses, i32 n_types);
 
   /// @brief Run until the given simulation step.
@@ -65,8 +65,8 @@ class FastPipelineScheduler {
   void run_until(i32 target_step);
 
   /// @brief Download device arrays to host.
-  void download(Vec3* positions, Vec3* velocities, Vec3* forces, i32* types,
-                i32* ids, i32 natoms) const;
+  void download(PositionVec* positions, VelocityVec* velocities,
+                ForceVec* forces, i32* types, i32* ids, i32 natoms) const;
 
   /// @brief Telemetry counters.
   [[nodiscard]] const FastPipelineStats& stats() const noexcept {
@@ -89,9 +89,9 @@ class FastPipelineScheduler {
   potentials::MorseParams params_;
   FastPipelineConfig cfg_;
 
-  DeviceBuffer<Vec3> d_pos_;
-  DeviceBuffer<Vec3> d_vel_;
-  DeviceBuffer<Vec3> d_forces_;
+  DeviceBuffer<PositionVec> d_pos_;
+  DeviceBuffer<VelocityVec> d_vel_;
+  DeviceBuffer<ForceVec> d_forces_;
   DeviceBuffer<i32> d_types_;
   DeviceBuffer<i32> d_ids_;
   DeviceBuffer<real> d_masses_;

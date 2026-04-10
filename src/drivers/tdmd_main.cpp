@@ -48,13 +48,16 @@ void print_usage() {
 }
 
 tdmd::real kinetic_energy(const tdmd::SystemState& s) {
-  tdmd::real ke = 0;
+  tdmd::accum_t ke = 0;
   for (tdmd::i64 i = 0; i < s.natoms; ++i) {
     auto si = static_cast<std::size_t>(i);
-    tdmd::real mass = s.masses[static_cast<std::size_t>(s.types[si])];
-    ke += tdmd::real{0.5} * mass * tdmd::kMvv2e * tdmd::length_sq(s.velocities[si]);
+    tdmd::accum_t mass =
+        s.masses[static_cast<std::size_t>(s.types[si])];
+    ke += tdmd::accum_t{0.5} * mass *
+          static_cast<tdmd::accum_t>(tdmd::kMvv2e) *
+          tdmd::length_sq(s.velocities[si]);
   }
-  return ke;
+  return static_cast<tdmd::real>(ke);
 }
 
 void print_thermo(const tdmd::SystemState& s, tdmd::real pe, tdmd::real ke) {

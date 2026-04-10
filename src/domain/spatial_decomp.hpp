@@ -38,13 +38,13 @@ class SpatialDecomp {
   /// @param ids        Per-atom ids (reordered in-place).
   /// @param natoms     Total number of atoms.
   /// @return Number of owned atoms (first n_owned elements after reorder).
-  i32 partition_atoms(Vec3* positions, Vec3* velocities, Vec3* forces,
-                      i32* types, i32* ids, i64 natoms);
+  i32 partition_atoms(PositionVec* positions, VelocityVec* velocities,
+                      ForceVec* forces, i32* types, i32* ids, i64 natoms);
 
   /// @brief Identify owned atoms that are ghosts for the prev/next spatial neighbor.
   ///
   /// Call after partition_atoms. Indices are into the owned atom range [0, n_owned).
-  void identify_send_ghosts(const Vec3* positions, i32 n_owned,
+  void identify_send_ghosts(const PositionVec* positions, i32 n_owned,
                             std::vector<i32>& send_to_prev,
                             std::vector<i32>& send_to_next) const;
 

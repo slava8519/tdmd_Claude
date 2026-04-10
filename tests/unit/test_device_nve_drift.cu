@@ -21,16 +21,18 @@
 using namespace tdmd;
 using namespace tdmd::testing;
 
-static real compute_kinetic_energy_host(const std::vector<Vec3>& velocities,
-                                        const std::vector<i32>& types,
-                                        const std::vector<real>& masses,
-                                        i64 natoms) {
-  real ke = 0;
+static double compute_kinetic_energy_host(
+    const std::vector<VelocityVec>& velocities,
+    const std::vector<i32>& types,
+    const std::vector<real>& masses,
+    i64 natoms) {
+  double ke = 0;
   for (i64 i = 0; i < natoms; ++i) {
     auto si = static_cast<std::size_t>(i);
-    real mass = masses[static_cast<std::size_t>(types[si])];
-    const Vec3& v = velocities[si];
-    ke += real{0.5} * mass * kMvv2e * (v.x * v.x + v.y * v.y + v.z * v.z);
+    double mass = static_cast<double>(masses[static_cast<std::size_t>(types[si])]);
+    const VelocityVec& v = velocities[si];
+    ke += 0.5 * mass * static_cast<double>(kMvv2e) *
+          (v.x * v.x + v.y * v.y + v.z * v.z);
   }
   return ke;
 }
@@ -51,7 +53,9 @@ TEST(DeviceNVEDrift, Morse256Atoms50kSteps) {
   i32 ni = static_cast<i32>(state.natoms);
 
   // Upload positions, velocities, types, masses to device.
-  DeviceBuffer<Vec3> d_pos(n), d_vel(n), d_forces(n);
+  DeviceBuffer<PositionVec> d_pos(n);
+  DeviceBuffer<VelocityVec> d_vel(n);
+  DeviceBuffer<ForceVec> d_forces(n);
   DeviceBuffer<i32> d_types(n);
   DeviceBuffer<real> d_masses(state.masses.size());
 
@@ -87,11 +91,11 @@ TEST(DeviceNVEDrift, Morse256Atoms50kSteps) {
   d_pe.copy_to_host(&pe0, 1);
 
   // Download velocities for KE.
-  std::vector<Vec3> h_vel(n);
+  std::vector<VelocityVec> h_vel(n);
   d_vel.copy_to_host(h_vel.data(), n);
-  real ke0 = compute_kinetic_energy_host(h_vel, state.types, state.masses,
-                                          state.natoms);
-  real e0 = pe0 + ke0;
+  double ke0 = compute_kinetic_energy_host(h_vel, state.types, state.masses,
+                                           state.natoms);
+  double e0 = static_cast<double>(pe0) + ke0;
 
   // Rebuild interval for neighbor list.
   i32 rebuild_every = 10;
@@ -137,13 +141,13 @@ TEST(DeviceNVEDrift, Morse256Atoms50kSteps) {
   d_pe.copy_to_host(&pe_final, 1);
 
   d_vel.copy_to_host(h_vel.data(), n);
-  real ke_final = compute_kinetic_energy_host(h_vel, state.types, state.masses,
-                                               state.natoms);
-  real e_final = pe_final + ke_final;
+  double ke_final = compute_kinetic_energy_host(h_vel, state.types,
+                                                state.masses, state.natoms);
+  double e_final = static_cast<double>(pe_final) + ke_final;
 
-  real drift = std::abs((e_final - e0) / e0);
+  double drift = std::abs((e_final - e0) / e0);
   // M2 criterion: |dE/E| < 1e-4.
-  EXPECT_LT(drift, real{1e-4})
+  EXPECT_LT(drift, 1e-4)
       << "NVE drift |dE/E| = " << drift << ", E0=" << e0
       << ", Ef=" << e_final;
 }
@@ -164,7 +168,9 @@ TEST(DeviceNVEDrift, ADR0007AcceptanceTest100k) {
   auto n = static_cast<std::size_t>(state.natoms);
   i32 ni = static_cast<i32>(state.natoms);
 
-  DeviceBuffer<Vec3> d_pos(n), d_vel(n), d_forces(n);
+  DeviceBuffer<PositionVec> d_pos(n);
+  DeviceBuffer<VelocityVec> d_vel(n);
+  DeviceBuffer<ForceVec> d_forces(n);
   DeviceBuffer<i32> d_types(n);
   DeviceBuffer<real> d_masses(state.masses.size());
 
@@ -189,10 +195,10 @@ TEST(DeviceNVEDrift, ADR0007AcceptanceTest100k) {
   accum_t pe0 = 0;
   d_pe.copy_to_host(&pe0, 1);
 
-  std::vector<Vec3> h_vel(n);
+  std::vector<VelocityVec> h_vel(n);
   d_vel.copy_to_host(h_vel.data(), n);
-  real ke0 = compute_kinetic_energy_host(h_vel, state.types, state.masses,
-                                         state.natoms);
+  double ke0 = compute_kinetic_energy_host(h_vel, state.types, state.masses,
+                                           state.natoms);
   accum_t e0 = static_cast<accum_t>(pe0) + static_cast<accum_t>(ke0);
 
   constexpr i32 rebuild_every = 10;
@@ -229,8 +235,8 @@ TEST(DeviceNVEDrift, ADR0007AcceptanceTest100k) {
   d_pe.copy_to_host(&pe_final, 1);
 
   d_vel.copy_to_host(h_vel.data(), n);
-  real ke_final = compute_kinetic_energy_host(h_vel, state.types, state.masses,
-                                              state.natoms);
+  double ke_final = compute_kinetic_energy_host(h_vel, state.types,
+                                                state.masses, state.natoms);
   accum_t ef = static_cast<accum_t>(pe_final) + static_cast<accum_t>(ke_final);
 
   accum_t total_drift = std::abs((ef - e0) / e0);

@@ -10,7 +10,7 @@
 
 namespace tdmd::domain {
 
-void CellList::build(const Vec3* positions, i64 natoms, const Box& box,
+void CellList::build(const PositionVec* positions, i64 natoms, const Box& box,
                      real r_list) {
   TDMD_ASSERT(r_list > real{0}, "r_list must be positive");
   TDMD_ASSERT(natoms >= 0, "natoms must be non-negative");
@@ -22,9 +22,7 @@ void CellList::build(const Vec3* positions, i64 natoms, const Box& box,
   ncy_ = std::max(3, static_cast<i32>(std::floor(box_size.y / r_list)));
   ncz_ = std::max(3, static_cast<i32>(std::floor(box_size.z / r_list)));
 
-  cell_size_ = {static_cast<real>(box_size.x / ncx_),
-                static_cast<real>(box_size.y / ncy_),
-                static_cast<real>(box_size.z / ncz_)};
+  cell_size_ = {box_size.x / ncx_, box_size.y / ncy_, box_size.z / ncz_};
 
   const i32 ncells = ncx_ * ncy_ * ncz_;
 

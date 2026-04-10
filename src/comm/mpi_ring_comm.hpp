@@ -22,12 +22,13 @@ struct ZoneMessage {
   i32 zone_id{-1};
   i32 time_step{0};
   i32 natoms{0};
-  std::vector<Vec3> positions;
-  std::vector<Vec3> velocities;
+  std::vector<PositionVec> positions;
+  std::vector<VelocityVec> velocities;
 
   /// @brief Total byte size of the payload (excluding header).
   [[nodiscard]] std::size_t payload_bytes() const noexcept {
-    return static_cast<std::size_t>(natoms) * 2 * sizeof(Vec3);
+    return static_cast<std::size_t>(natoms) *
+           (sizeof(PositionVec) + sizeof(VelocityVec));
   }
 };
 

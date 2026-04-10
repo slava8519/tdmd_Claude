@@ -25,7 +25,7 @@ static real total_energy(const SystemState& state, real pe) {
   for (i64 i = 0; i < state.natoms; ++i) {
     auto si = static_cast<std::size_t>(i);
     real mass = state.masses[static_cast<std::size_t>(state.types[si])];
-    const Vec3& v = state.velocities[si];
+    const VelocityVec& v = state.velocities[si];
     ke += real{0.5} * mass * kMvv2e * (v.x * v.x + v.y * v.y + v.z * v.z);
   }
   return ke + pe;
@@ -91,19 +91,26 @@ TEST(SequentialScheduler, MatchesGlobalMD) {
     auto ig = global_map[id];
     auto iz = zoned_map[id];
 
-    auto dp = [](Vec3 a, Vec3 b) {
+    auto dp_pos = [](PositionVec a, PositionVec b) {
       return std::max({std::abs(a.x - b.x), std::abs(a.y - b.y),
                        std::abs(a.z - b.z)});
     };
-    max_pos_diff =
-        std::max(max_pos_diff,
-                 dp(state_global.positions[ig], state_zoned.positions[iz]));
-    max_vel_diff =
-        std::max(max_vel_diff,
-                 dp(state_global.velocities[ig], state_zoned.velocities[iz]));
-    max_force_diff =
-        std::max(max_force_diff,
-                 dp(state_global.forces[ig], state_zoned.forces[iz]));
+    auto dp_force = [](ForceVec a, ForceVec b) {
+      return std::max({std::abs(a.x - b.x), std::abs(a.y - b.y),
+                       std::abs(a.z - b.z)});
+    };
+    max_pos_diff = std::max<real>(
+        max_pos_diff,
+        static_cast<real>(
+            dp_pos(state_global.positions[ig], state_zoned.positions[iz])));
+    max_vel_diff = std::max<real>(
+        max_vel_diff,
+        static_cast<real>(
+            dp_pos(state_global.velocities[ig], state_zoned.velocities[iz])));
+    max_force_diff = std::max<real>(
+        max_force_diff,
+        static_cast<real>(
+            dp_force(state_global.forces[ig], state_zoned.forces[iz])));
   }
 
   // Should be bit-identical since the only difference is atom ordering,

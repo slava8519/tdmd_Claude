@@ -21,7 +21,7 @@ static constexpr int kBlock = 256;
 
 /// Per-block KE reduction kernel. Each block reduces its chunk and writes
 /// one partial sum to d_block_sums. Accumulation always in double (accum_t).
-__global__ void ke_reduce_kernel(const Vec3* __restrict__ velocities,
+__global__ void ke_reduce_kernel(const VelocityVec* __restrict__ velocities,
                                  const i32* __restrict__ types,
                                  const real* __restrict__ masses, i32 natoms,
                                  accum_t* __restrict__ d_block_sums) {
@@ -33,7 +33,7 @@ __global__ void ke_reduce_kernel(const Vec3* __restrict__ velocities,
   accum_t val = 0;
   if (gid < natoms) {
     accum_t mass = static_cast<accum_t>(masses[types[gid]]);
-    Vec3 v = velocities[gid];
+    VelocityVec v = velocities[gid];
     val = 0.5 * mass * kMvv2e *
           (static_cast<accum_t>(v.x) * static_cast<accum_t>(v.x) +
            static_cast<accum_t>(v.y) * static_cast<accum_t>(v.y) +
@@ -55,8 +55,8 @@ __global__ void ke_reduce_kernel(const Vec3* __restrict__ velocities,
   }
 }
 
-__global__ void scale_vel_kernel(Vec3* __restrict__ velocities, i32 natoms,
-                                 real factor) {
+__global__ void scale_vel_kernel(VelocityVec* __restrict__ velocities,
+                                 i32 natoms, real factor) {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i >= natoms) return;
   velocities[i].x *= factor;
@@ -64,7 +64,7 @@ __global__ void scale_vel_kernel(Vec3* __restrict__ velocities, i32 natoms,
   velocities[i].z *= factor;
 }
 
-__global__ void scale_vel_zone_kernel(Vec3* __restrict__ velocities,
+__global__ void scale_vel_zone_kernel(VelocityVec* __restrict__ velocities,
                                       i32 first_atom, i32 atom_count,
                                       real factor) {
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -77,7 +77,7 @@ __global__ void scale_vel_zone_kernel(Vec3* __restrict__ velocities,
 
 // ---- Device functions ----
 
-accum_t device_compute_ke(const Vec3* d_velocities, const i32* d_types,
+accum_t device_compute_ke(const VelocityVec* d_velocities, const i32* d_types,
                           const real* d_masses, i32 natoms) {
   if (natoms == 0) return 0;
 
@@ -104,14 +104,15 @@ accum_t device_compute_ke(const Vec3* d_velocities, const i32* d_types,
   return total;
 }
 
-void device_scale_velocities(Vec3* d_velocities, i32 natoms, real factor) {
+void device_scale_velocities(VelocityVec* d_velocities, i32 natoms,
+                             real factor) {
   if (natoms == 0) return;
   int grid = (natoms + kBlock - 1) / kBlock;
   scale_vel_kernel<<<grid, kBlock>>>(d_velocities, natoms, factor);
   TDMD_CUDA_CHECK(cudaGetLastError());
 }
 
-void device_scale_velocities_zone(Vec3* d_velocities, i32 first_atom,
+void device_scale_velocities_zone(VelocityVec* d_velocities, i32 first_atom,
                                   i32 atom_count, real factor,
                                   cudaStream_t stream) {
   if (atom_count == 0) return;
@@ -125,7 +126,7 @@ void device_scale_velocities_zone(Vec3* d_velocities, i32 first_atom,
 
 /// Per-block max speed reduction. Each block computes max |v| for its chunk.
 /// Accumulation always in double (accum_t).
-__global__ void vmax_reduce_kernel(const Vec3* __restrict__ velocities,
+__global__ void vmax_reduce_kernel(const VelocityVec* __restrict__ velocities,
                                    i32 natoms,
                                    accum_t* __restrict__ d_block_max) {
   extern __shared__ accum_t sdata[];
@@ -135,7 +136,7 @@ __global__ void vmax_reduce_kernel(const Vec3* __restrict__ velocities,
 
   accum_t val = 0;
   if (gid < natoms) {
-    Vec3 v = velocities[gid];
+    VelocityVec v = velocities[gid];
     val = static_cast<accum_t>(v.x) * static_cast<accum_t>(v.x) +
           static_cast<accum_t>(v.y) * static_cast<accum_t>(v.y) +
           static_cast<accum_t>(v.z) * static_cast<accum_t>(v.z);
@@ -155,7 +156,7 @@ __global__ void vmax_reduce_kernel(const Vec3* __restrict__ velocities,
   }
 }
 
-accum_t device_compute_vmax(const Vec3* d_velocities, i32 natoms) {
+accum_t device_compute_vmax(const VelocityVec* d_velocities, i32 natoms) {
   if (natoms == 0) return 0;
 
   int grid = (natoms + kBlock - 1) / kBlock;

@@ -57,14 +57,14 @@ class DistributedPipelineScheduler {
                                const DistributedConfig& cfg,
                                MPI_Comm comm);
 
-  void upload(const Vec3* positions, const Vec3* velocities,
-              const Vec3* forces, const i32* types, const i32* ids,
+  void upload(const PositionVec* positions, const VelocityVec* velocities,
+              const ForceVec* forces, const i32* types, const i32* ids,
               const real* masses, i32 n_masses);
 
   void run_until(i32 target_step);
 
-  void download(Vec3* positions, Vec3* velocities, Vec3* forces, i32* types,
-                i32* ids, i32 natoms) const;
+  void download(PositionVec* positions, VelocityVec* velocities,
+                ForceVec* forces, i32* types, i32* ids, i32 natoms) const;
 
   [[nodiscard]] const domain::ZonePartition& partition() const noexcept {
     return partition_;
@@ -90,7 +90,9 @@ class DistributedPipelineScheduler {
   domain::ZonePartition partition_;
   StreamPool streams_;
 
-  DeviceBuffer<Vec3> d_pos_, d_vel_, d_forces_;
+  DeviceBuffer<PositionVec> d_pos_;
+  DeviceBuffer<VelocityVec> d_vel_;
+  DeviceBuffer<ForceVec> d_forces_;
   DeviceBuffer<i32> d_types_, d_ids_;
   DeviceBuffer<real> d_masses_;
   neighbors::DeviceNeighborList nlist_;

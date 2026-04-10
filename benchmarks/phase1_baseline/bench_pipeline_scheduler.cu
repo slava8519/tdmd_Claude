@@ -137,10 +137,11 @@ void init_velocities(SystemState& state, real t_target, unsigned seed) {
   }
 
   // Remove COM momentum.
-  Vec3 com_v{0, 0, 0};
-  real total_mass = 0;
+  VelocityVec com_v{0, 0, 0};
+  double total_mass = 0;
   for (std::size_t i = 0; i < n; ++i) {
-    real mass = state.masses[static_cast<std::size_t>(state.types[i])];
+    double mass =
+        static_cast<double>(state.masses[static_cast<std::size_t>(state.types[i])]);
     com_v.x += mass * state.velocities[i].x;
     com_v.y += mass * state.velocities[i].y;
     com_v.z += mass * state.velocities[i].z;
@@ -156,16 +157,19 @@ void init_velocities(SystemState& state, real t_target, unsigned seed) {
   }
 
   // Rescale to exact target T.
-  real ke = 0;
+  double ke = 0;
   for (std::size_t i = 0; i < n; ++i) {
-    real mass = state.masses[static_cast<std::size_t>(state.types[i])];
-    const Vec3& v = state.velocities[i];
-    ke += real{0.5} * mass * kMvv2e * (v.x * v.x + v.y * v.y + v.z * v.z);
+    double mass =
+        static_cast<double>(state.masses[static_cast<std::size_t>(state.types[i])]);
+    const VelocityVec& v = state.velocities[i];
+    ke += 0.5 * mass * static_cast<double>(kMvv2e) *
+          (v.x * v.x + v.y * v.y + v.z * v.z);
   }
   i32 n_dof = 3 * static_cast<i32>(state.natoms) - 3;
-  real t_current = real{2} * ke / (static_cast<real>(n_dof) * kBoltzmann);
+  double t_current =
+      2.0 * ke / (static_cast<double>(n_dof) * static_cast<double>(kBoltzmann));
   if (t_current > 0) {
-    real scale = std::sqrt(t_target / t_current);
+    double scale = std::sqrt(static_cast<double>(t_target) / t_current);
     for (std::size_t i = 0; i < n; ++i) {
       state.velocities[i].x *= scale;
       state.velocities[i].y *= scale;

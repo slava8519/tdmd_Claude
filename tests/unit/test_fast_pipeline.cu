@@ -21,15 +21,17 @@
 
 using namespace tdmd;
 
-static real compute_ke_host(const std::vector<Vec3>& velocities,
-                            const std::vector<i32>& types,
-                            const std::vector<real>& masses, i64 natoms) {
-  real ke = 0;
+static double compute_ke_host(const std::vector<VelocityVec>& velocities,
+                              const std::vector<i32>& types,
+                              const std::vector<real>& masses, i64 natoms) {
+  double ke = 0;
   for (i64 i = 0; i < natoms; ++i) {
     auto si = static_cast<std::size_t>(i);
-    real mass = masses[static_cast<std::size_t>(types[si])];
-    const Vec3& v = velocities[si];
-    ke += real{0.5} * mass * kMvv2e * (v.x * v.x + v.y * v.y + v.z * v.z);
+    double mass =
+        static_cast<double>(masses[static_cast<std::size_t>(types[si])]);
+    const VelocityVec& v = velocities[si];
+    ke += 0.5 * mass * static_cast<double>(kMvv2e) *
+          (v.x * v.x + v.y * v.y + v.z * v.z);
   }
   return ke;
 }
@@ -65,10 +67,11 @@ TEST(FastPipelineScheduler, NVEConservation) {
   neighbors::NeighborList cpu_nlist;
   cpu_nlist.build(state.positions.data(), state.natoms, state.box, rc,
                   cfg.r_skin);
-  real pe0 = potentials::compute_pair_forces(state, cpu_nlist, morse);
-  real ke0 = compute_ke_host(state.velocities, state.types, state.masses,
-                             state.natoms);
-  real e0 = pe0 + ke0;
+  double pe0 = static_cast<double>(
+      potentials::compute_pair_forces(state, cpu_nlist, morse));
+  double ke0 = compute_ke_host(state.velocities, state.types, state.masses,
+                               state.natoms);
+  double e0 = pe0 + ke0;
 
   // Run to step 1000.
   sched.run_until(1000);
@@ -78,16 +81,16 @@ TEST(FastPipelineScheduler, NVEConservation) {
 
   cpu_nlist.build(state.positions.data(), state.natoms, state.box, rc,
                   cfg.r_skin);
-  real pe_f = potentials::compute_pair_forces(state, cpu_nlist, morse);
-  real ke_f = compute_ke_host(state.velocities, state.types, state.masses,
-                              state.natoms);
-  real ef = pe_f + ke_f;
+  double pe_f = static_cast<double>(
+      potentials::compute_pair_forces(state, cpu_nlist, morse));
+  double ke_f = compute_ke_host(state.velocities, state.types, state.masses,
+                                state.natoms);
+  double ef = pe_f + ke_f;
 
-  real drift = std::abs((ef - e0) / e0);
+  double drift = std::abs((ef - e0) / e0);
   std::printf("  NVEConservation (1k steps): E0=%.6f  Ef=%.6f  |dE/E|=%.2e\n",
-              static_cast<double>(e0), static_cast<double>(ef),
-              static_cast<double>(drift));
-  EXPECT_LT(drift, real{1e-4})
+              e0, ef, drift);
+  EXPECT_LT(drift, 1e-4)
       << "FastPipeline NVE drift |dE/E| = " << drift;
 }
 
@@ -122,10 +125,11 @@ TEST(FastPipelineScheduler, LongNVEDrift) {
   neighbors::NeighborList cpu_nlist;
   cpu_nlist.build(state.positions.data(), state.natoms, state.box, rc,
                   cfg.r_skin);
-  real pe0 = potentials::compute_pair_forces(state, cpu_nlist, morse);
-  real ke0 = compute_ke_host(state.velocities, state.types, state.masses,
-                             state.natoms);
-  real e0 = pe0 + ke0;
+  double pe0 = static_cast<double>(
+      potentials::compute_pair_forces(state, cpu_nlist, morse));
+  double ke0 = compute_ke_host(state.velocities, state.types, state.masses,
+                               state.natoms);
+  double e0 = pe0 + ke0;
 
   // Run to step 10000.
   sched.run_until(10000);
@@ -135,17 +139,17 @@ TEST(FastPipelineScheduler, LongNVEDrift) {
 
   cpu_nlist.build(state.positions.data(), state.natoms, state.box, rc,
                   cfg.r_skin);
-  real pe_f = potentials::compute_pair_forces(state, cpu_nlist, morse);
-  real ke_f = compute_ke_host(state.velocities, state.types, state.masses,
-                              state.natoms);
-  real ef = pe_f + ke_f;
+  double pe_f = static_cast<double>(
+      potentials::compute_pair_forces(state, cpu_nlist, morse));
+  double ke_f = compute_ke_host(state.velocities, state.types, state.masses,
+                                state.natoms);
+  double ef = pe_f + ke_f;
 
-  real drift = std::abs((ef - e0) / e0);
+  double drift = std::abs((ef - e0) / e0);
   std::printf("  LongNVEDrift (10k steps): E0=%.6f  Ef=%.6f  |dE/E|=%.2e\n",
-              static_cast<double>(e0), static_cast<double>(ef),
-              static_cast<double>(drift));
+              e0, ef, drift);
   // FP32 accumulates more error; 1e-3 is a reasonable threshold for 10k steps.
-  EXPECT_LT(drift, real{1e-3})
+  EXPECT_LT(drift, 1e-3)
       << "FastPipeline long NVE drift |dE/E| = " << drift
       << " (E0=" << e0 << ", Ef=" << ef << ")";
 }

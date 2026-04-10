@@ -22,10 +22,11 @@ FastPipelineScheduler::~FastPipelineScheduler() {
   }
 }
 
-void FastPipelineScheduler::upload(const Vec3* positions,
-                                   const Vec3* velocities, const Vec3* forces,
-                                   const i32* types, const i32* ids,
-                                   const real* masses, i32 n_types) {
+void FastPipelineScheduler::upload(const PositionVec* positions,
+                                   const VelocityVec* velocities,
+                                   const ForceVec* forces, const i32* types,
+                                   const i32* ids, const real* masses,
+                                   i32 n_types) {
   auto n = static_cast<std::size_t>(natoms_);
 
   d_pos_.resize(n);
@@ -47,8 +48,9 @@ void FastPipelineScheduler::upload(const Vec3* positions,
   steps_since_rebuild_ = 0;
 }
 
-void FastPipelineScheduler::download(Vec3* positions, Vec3* velocities,
-                                     Vec3* forces, i32* types, i32* ids,
+void FastPipelineScheduler::download(PositionVec* positions,
+                                     VelocityVec* velocities,
+                                     ForceVec* forces, i32* types, i32* ids,
                                      i32 natoms) const {
   auto n = static_cast<std::size_t>(natoms);
   d_pos_.copy_to_host(positions, n);

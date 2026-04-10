@@ -19,10 +19,10 @@ TEST(DeviceCellList, EveryAtomInExactlyOneCell) {
   box.hi = {10, 10, 10};
   box.periodic = {true, true, true};
 
-  std::vector<Vec3> h_pos = {{1, 1, 1}, {3, 3, 3}, {5, 5, 5}, {7, 7, 7},
-                             {2, 8, 1}, {9, 1, 9}, {4, 6, 2}, {8, 4, 6}};
+  std::vector<PositionVec> h_pos = {{1, 1, 1}, {3, 3, 3}, {5, 5, 5}, {7, 7, 7},
+                                    {2, 8, 1}, {9, 1, 9}, {4, 6, 2}, {8, 4, 6}};
 
-  DeviceBuffer<Vec3> d_pos(static_cast<std::size_t>(N));
+  DeviceBuffer<PositionVec> d_pos(static_cast<std::size_t>(N));
   d_pos.copy_from_host(h_pos.data(), static_cast<std::size_t>(N));
 
   domain::DeviceCellList dcl;
@@ -76,16 +76,16 @@ TEST(DeviceCellList, MatchesCPUCellList) {
   box.periodic = {true, true, true};
 
   // Generate a regular grid of positions.
-  std::vector<Vec3> h_pos(static_cast<std::size_t>(N));
-  real spacing = real{14.46} / real{8};  // ~6.3 atoms per axis = 6^3 < 256
+  std::vector<PositionVec> h_pos(static_cast<std::size_t>(N));
+  double spacing = 14.46 / 8.0;  // ~6.3 atoms per axis = 6^3 < 256
   i32 idx = 0;
   for (i32 iz = 0; iz < 8 && idx < N; ++iz) {
     for (i32 iy = 0; iy < 8 && idx < N; ++iy) {
       for (i32 ix = 0; ix < 8 && idx < N; ++ix) {
         h_pos[static_cast<std::size_t>(idx)] = {
-            (static_cast<real>(ix) + real{0.5}) * spacing,
-            (static_cast<real>(iy) + real{0.5}) * spacing,
-            (static_cast<real>(iz) + real{0.5}) * spacing};
+            (static_cast<double>(ix) + 0.5) * spacing,
+            (static_cast<double>(iy) + 0.5) * spacing,
+            (static_cast<double>(iz) + 0.5) * spacing};
         ++idx;
       }
     }
@@ -99,7 +99,7 @@ TEST(DeviceCellList, MatchesCPUCellList) {
   cpu_cl.build(h_pos.data(), N, box, r_list);
 
   // GPU cell list.
-  DeviceBuffer<Vec3> d_pos(static_cast<std::size_t>(N));
+  DeviceBuffer<PositionVec> d_pos(static_cast<std::size_t>(N));
   d_pos.copy_from_host(h_pos.data(), static_cast<std::size_t>(N));
 
   domain::DeviceCellList gpu_cl;

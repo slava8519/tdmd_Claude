@@ -19,9 +19,11 @@ struct DeviceSystemState {
   i64 natoms{0};
   Box box;
 
-  DeviceBuffer<Vec3> positions;
-  DeviceBuffer<Vec3> velocities;
-  DeviceBuffer<Vec3> forces;
+  // Per ADR 0007: positions/velocities always Vec3D, forces are
+  // ForceVec (Vec3F in mixed, Vec3D in fp64).
+  DeviceBuffer<PositionVec> positions;   // Vec3D
+  DeviceBuffer<VelocityVec> velocities;  // Vec3D
+  DeviceBuffer<ForceVec>    forces;      // Vec3F / Vec3D
   DeviceBuffer<i32>  types;
   DeviceBuffer<i32>  ids;
   DeviceBuffer<real> masses;  // per-type, length = ntypes

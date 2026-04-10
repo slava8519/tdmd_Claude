@@ -30,15 +30,17 @@
 using namespace tdmd;
 using namespace tdmd::testing;
 
-static real compute_ke_host(const std::vector<Vec3>& velocities,
-                            const std::vector<i32>& types,
-                            const std::vector<real>& masses, i64 natoms) {
-  real ke = 0;
+static double compute_ke_host(const std::vector<VelocityVec>& velocities,
+                              const std::vector<i32>& types,
+                              const std::vector<real>& masses, i64 natoms) {
+  double ke = 0;
   for (i64 i = 0; i < natoms; ++i) {
     auto si = static_cast<std::size_t>(i);
-    real mass = masses[static_cast<std::size_t>(types[si])];
-    const Vec3& v = velocities[si];
-    ke += real{0.5} * mass * kMvv2e * (v.x * v.x + v.y * v.y + v.z * v.z);
+    double mass =
+        static_cast<double>(masses[static_cast<std::size_t>(types[si])]);
+    const VelocityVec& v = velocities[si];
+    ke += 0.5 * mass * static_cast<double>(kMvv2e) *
+          (v.x * v.x + v.y * v.y + v.z * v.z);
   }
   return ke;
 }
@@ -46,11 +48,12 @@ static real compute_ke_host(const std::vector<Vec3>& velocities,
 /// Gather all owned atoms from all spatial ranks in a space_comm group
 /// onto every rank. Returns the assembled full state.
 static void gather_owned_atoms(
-    const Vec3* owned_pos, const Vec3* owned_vel, const Vec3* owned_forces,
-    const i32* owned_types, const i32* owned_ids, i32 n_owned,
-    std::vector<Vec3>& all_pos, std::vector<Vec3>& all_vel,
-    std::vector<Vec3>& all_forces, std::vector<i32>& all_types,
-    std::vector<i32>& all_ids, MPI_Comm space_comm) {
+    const PositionVec* owned_pos, const VelocityVec* owned_vel,
+    const ForceVec* owned_forces, const i32* owned_types, const i32* owned_ids,
+    i32 n_owned, std::vector<PositionVec>& all_pos,
+    std::vector<VelocityVec>& all_vel, std::vector<ForceVec>& all_forces,
+    std::vector<i32>& all_types, std::vector<i32>& all_ids,
+    MPI_Comm space_comm) {
   int space_size = 0;
   MPI_Comm_size(space_comm, &space_size);
 
@@ -74,29 +77,39 @@ static void gather_owned_atoms(
   all_types.resize(t);
   all_ids.resize(t);
 
-  // Scale counts/displs for Vec3 (3 reals).
-  std::vector<int> vec3_counts(counts.size()), vec3_displs(displs.size());
+  // Scale counts/displs per element type.
+  std::vector<int> pos_counts(counts.size()), pos_displs(displs.size());
+  std::vector<int> vel_counts(counts.size()), vel_displs(displs.size());
+  std::vector<int> force_counts(counts.size()), force_displs(displs.size());
   std::vector<int> i32_counts(counts.size()), i32_displs(displs.size());
   for (std::size_t i = 0; i < counts.size(); ++i) {
-    vec3_counts[i] = static_cast<int>(
-        static_cast<std::size_t>(counts[i]) * sizeof(Vec3));
-    vec3_displs[i] = static_cast<int>(
-        static_cast<std::size_t>(displs[i]) * sizeof(Vec3));
+    pos_counts[i] = static_cast<int>(
+        static_cast<std::size_t>(counts[i]) * sizeof(PositionVec));
+    pos_displs[i] = static_cast<int>(
+        static_cast<std::size_t>(displs[i]) * sizeof(PositionVec));
+    vel_counts[i] = static_cast<int>(
+        static_cast<std::size_t>(counts[i]) * sizeof(VelocityVec));
+    vel_displs[i] = static_cast<int>(
+        static_cast<std::size_t>(displs[i]) * sizeof(VelocityVec));
+    force_counts[i] = static_cast<int>(
+        static_cast<std::size_t>(counts[i]) * sizeof(ForceVec));
+    force_displs[i] = static_cast<int>(
+        static_cast<std::size_t>(displs[i]) * sizeof(ForceVec));
     i32_counts[i] = static_cast<int>(
         static_cast<std::size_t>(counts[i]) * sizeof(i32));
     i32_displs[i] = static_cast<int>(
         static_cast<std::size_t>(displs[i]) * sizeof(i32));
   }
 
-  MPI_Allgatherv(owned_pos, static_cast<int>(n_owned * sizeof(Vec3)),
-                 MPI_BYTE, all_pos.data(), vec3_counts.data(),
-                 vec3_displs.data(), MPI_BYTE, space_comm);
-  MPI_Allgatherv(owned_vel, static_cast<int>(n_owned * sizeof(Vec3)),
-                 MPI_BYTE, all_vel.data(), vec3_counts.data(),
-                 vec3_displs.data(), MPI_BYTE, space_comm);
-  MPI_Allgatherv(owned_forces, static_cast<int>(n_owned * sizeof(Vec3)),
-                 MPI_BYTE, all_forces.data(), vec3_counts.data(),
-                 vec3_displs.data(), MPI_BYTE, space_comm);
+  MPI_Allgatherv(owned_pos, static_cast<int>(n_owned * sizeof(PositionVec)),
+                 MPI_BYTE, all_pos.data(), pos_counts.data(),
+                 pos_displs.data(), MPI_BYTE, space_comm);
+  MPI_Allgatherv(owned_vel, static_cast<int>(n_owned * sizeof(VelocityVec)),
+                 MPI_BYTE, all_vel.data(), vel_counts.data(),
+                 vel_displs.data(), MPI_BYTE, space_comm);
+  MPI_Allgatherv(owned_forces, static_cast<int>(n_owned * sizeof(ForceVec)),
+                 MPI_BYTE, all_forces.data(), force_counts.data(),
+                 force_displs.data(), MPI_BYTE, space_comm);
   MPI_Allgatherv(owned_types, static_cast<int>(n_owned * sizeof(i32)),
                  MPI_BYTE, all_types.data(), i32_counts.data(),
                  i32_displs.data(), MPI_BYTE, space_comm);
@@ -176,9 +189,9 @@ TEST(HybridPipeline, DeterministicMatchesM5) {
 
   // Download owned atoms.
   i32 no = sched.n_owned();
-  std::vector<Vec3> my_pos(static_cast<std::size_t>(no));
-  std::vector<Vec3> my_vel(static_cast<std::size_t>(no));
-  std::vector<Vec3> my_forces(static_cast<std::size_t>(no));
+  std::vector<PositionVec> my_pos(static_cast<std::size_t>(no));
+  std::vector<VelocityVec> my_vel(static_cast<std::size_t>(no));
+  std::vector<ForceVec> my_forces(static_cast<std::size_t>(no));
   std::vector<i32> my_types(static_cast<std::size_t>(no));
   std::vector<i32> my_ids(static_cast<std::size_t>(no));
   sched.download(my_pos.data(), my_vel.data(), my_forces.data(),
@@ -200,7 +213,9 @@ TEST(HybridPipeline, DeterministicMatchesM5) {
   MPI_Comm space_comm;
   MPI_Cart_sub(cart_comm, space_remain, &space_comm);
 
-  std::vector<Vec3> all_pos, all_vel, all_forces;
+  std::vector<PositionVec> all_pos;
+  std::vector<VelocityVec> all_vel;
+  std::vector<ForceVec> all_forces;
   std::vector<i32> all_types, all_ids;
   gather_owned_atoms(my_pos.data(), my_vel.data(), my_forces.data(),
                      my_types.data(), my_ids.data(), no, all_pos, all_vel,
@@ -219,24 +234,24 @@ TEST(HybridPipeline, DeterministicMatchesM5) {
     }
 
     Vec3D box_size = state_ref.box.size();
-    auto pbc_diff = [](real a, real b, real box_len) {
-      real d = std::abs(a - b);
-      if (d > box_len * real{0.5}) d = box_len - d;
+    auto pbc_diff = [](double a, double b, double box_len) {
+      double d = std::abs(a - b);
+      if (d > box_len * 0.5) d = box_len - d;
       return d;
     };
 
-    real max_pos_diff = 0, max_vel_diff = 0;
+    double max_pos_diff = 0, max_vel_diff = 0;
     for (std::size_t id = 0; id < n; ++id) {
       auto i_ref = map_ref[id];
       auto i_m6 = map_m6[id];
       // PBC-aware position comparison.
-      real dp = std::max({pbc_diff(state_ref.positions[i_ref].x, all_pos[i_m6].x, static_cast<real>(box_size.x)),
-                          pbc_diff(state_ref.positions[i_ref].y, all_pos[i_m6].y, static_cast<real>(box_size.y)),
-                          pbc_diff(state_ref.positions[i_ref].z, all_pos[i_m6].z, static_cast<real>(box_size.z))});
+      double dp = std::max({pbc_diff(state_ref.positions[i_ref].x, all_pos[i_m6].x, box_size.x),
+                            pbc_diff(state_ref.positions[i_ref].y, all_pos[i_m6].y, box_size.y),
+                            pbc_diff(state_ref.positions[i_ref].z, all_pos[i_m6].z, box_size.z)});
       max_pos_diff = std::max(max_pos_diff, dp);
-      real dv = std::max({std::abs(state_ref.velocities[i_ref].x - all_vel[i_m6].x),
-                          std::abs(state_ref.velocities[i_ref].y - all_vel[i_m6].y),
-                          std::abs(state_ref.velocities[i_ref].z - all_vel[i_m6].z)});
+      double dv = std::max({std::abs(state_ref.velocities[i_ref].x - all_vel[i_m6].x),
+                            std::abs(state_ref.velocities[i_ref].y - all_vel[i_m6].y),
+                            std::abs(state_ref.velocities[i_ref].z - all_vel[i_m6].z)});
       max_vel_diff = std::max(max_vel_diff, dv);
     }
 
@@ -282,9 +297,9 @@ TEST(HybridPipeline, PipelineNVEConservation) {
 
   // Gather atoms from spatial ranks for energy computation.
   i32 no = sched.n_owned();
-  std::vector<Vec3> my_pos(static_cast<std::size_t>(no));
-  std::vector<Vec3> my_vel(static_cast<std::size_t>(no));
-  std::vector<Vec3> my_forces(static_cast<std::size_t>(no));
+  std::vector<PositionVec> my_pos(static_cast<std::size_t>(no));
+  std::vector<VelocityVec> my_vel(static_cast<std::size_t>(no));
+  std::vector<ForceVec> my_forces(static_cast<std::size_t>(no));
   std::vector<i32> my_types(static_cast<std::size_t>(no));
   std::vector<i32> my_ids(static_cast<std::size_t>(no));
   sched.download(my_pos.data(), my_vel.data(), my_forces.data(),
@@ -299,13 +314,15 @@ TEST(HybridPipeline, PipelineNVEConservation) {
   MPI_Comm space_comm;
   MPI_Cart_sub(cart_comm, space_remain, &space_comm);
 
-  std::vector<Vec3> all_pos, all_vel, all_forces;
+  std::vector<PositionVec> all_pos;
+  std::vector<VelocityVec> all_vel;
+  std::vector<ForceVec> all_forces;
   std::vector<i32> all_types, all_ids;
   gather_owned_atoms(my_pos.data(), my_vel.data(), my_forces.data(),
                      my_types.data(), my_ids.data(), no, all_pos, all_vel,
                      all_forces, all_types, all_ids, space_comm);
 
-  real e0 = 0, ef = 0;
+  double e0 = 0, ef = 0;
   if (world_rank == 0) {
     auto natoms = static_cast<i64>(all_pos.size());
     SystemState full_state;
@@ -322,8 +339,9 @@ TEST(HybridPipeline, PipelineNVEConservation) {
     neighbors::NeighborList cpu_nlist;
     cpu_nlist.build(full_state.positions.data(), natoms, state.box, rc,
                     cfg.r_skin);
-    real pe0 = potentials::compute_pair_forces(full_state, cpu_nlist, morse);
-    real ke0 = compute_ke_host(all_vel, all_types, state.masses, natoms);
+    double pe0 = static_cast<double>(
+        potentials::compute_pair_forces(full_state, cpu_nlist, morse));
+    double ke0 = compute_ke_host(all_vel, all_types, state.masses, natoms);
     e0 = pe0 + ke0;
   }
 
@@ -352,11 +370,12 @@ TEST(HybridPipeline, PipelineNVEConservation) {
     neighbors::NeighborList cpu_nlist;
     cpu_nlist.build(full_state.positions.data(), natoms, state.box, rc,
                     cfg.r_skin);
-    real pe_f = potentials::compute_pair_forces(full_state, cpu_nlist, morse);
-    real ke_f = compute_ke_host(all_vel, all_types, state.masses, natoms);
+    double pe_f = static_cast<double>(
+        potentials::compute_pair_forces(full_state, cpu_nlist, morse));
+    double ke_f = compute_ke_host(all_vel, all_types, state.masses, natoms);
     ef = pe_f + ke_f;
 
-    real drift = std::abs((ef - e0) / e0);
+    double drift = std::abs((ef - e0) / e0);
     EXPECT_LT(drift, kNVEDriftTolerance)
         << "Hybrid Pipeline NVE drift |dE/E| = " << drift;
   }

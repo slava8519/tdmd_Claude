@@ -26,15 +26,17 @@
 using namespace tdmd;
 using namespace tdmd::testing;
 
-static real compute_ke_host(const std::vector<Vec3>& velocities,
-                            const std::vector<i32>& types,
-                            const std::vector<real>& masses, i64 natoms) {
-  real ke = 0;
+static double compute_ke_host(const std::vector<VelocityVec>& velocities,
+                              const std::vector<i32>& types,
+                              const std::vector<real>& masses, i64 natoms) {
+  double ke = 0;
   for (i64 i = 0; i < natoms; ++i) {
     auto si = static_cast<std::size_t>(i);
-    real mass = masses[static_cast<std::size_t>(types[si])];
-    const Vec3& v = velocities[si];
-    ke += real{0.5} * mass * kMvv2e * (v.x * v.x + v.y * v.y + v.z * v.z);
+    double mass =
+        static_cast<double>(masses[static_cast<std::size_t>(types[si])]);
+    const VelocityVec& v = velocities[si];
+    ke += 0.5 * mass * static_cast<double>(kMvv2e) *
+          (v.x * v.x + v.y * v.y + v.z * v.z);
   }
   return ke;
 }
@@ -97,16 +99,18 @@ TEST(PipelineScheduler, DeterministicMatchesM3) {
   for (std::size_t id = 0; id < n; ++id) {
     auto i3 = m3_map[id];
     auto i4 = m4_map[id];
-    auto d = [](Vec3 a, Vec3 b) {
+    auto d = [](PositionVec a, PositionVec b) {
       return std::max({std::abs(a.x - b.x), std::abs(a.y - b.y),
                        std::abs(a.z - b.z)});
     };
-    max_pos_diff =
-        std::max(max_pos_diff,
-                 d(state_m3.positions[i3], state_m4.positions[i4]));
-    max_vel_diff =
-        std::max(max_vel_diff,
-                 d(state_m3.velocities[i3], state_m4.velocities[i4]));
+    max_pos_diff = std::max<real>(
+        max_pos_diff,
+        static_cast<real>(
+            d(state_m3.positions[i3], state_m4.positions[i4])));
+    max_vel_diff = std::max<real>(
+        max_vel_diff,
+        static_cast<real>(
+            d(state_m3.velocities[i3], state_m4.velocities[i4])));
   }
 
   // Deterministic mode should match M3 closely. Per-zone force compute may
@@ -152,10 +156,11 @@ TEST(PipelineScheduler, PipelineNVEConservation) {
   neighbors::NeighborList cpu_nlist;
   cpu_nlist.build(state.positions.data(), state.natoms, state.box, rc,
                   cfg.r_skin);
-  real pe0 = potentials::compute_pair_forces(state, cpu_nlist, morse);
-  real ke0 = compute_ke_host(state.velocities, state.types, state.masses,
-                             state.natoms);
-  real e0 = pe0 + ke0;
+  double pe0 = static_cast<double>(
+      potentials::compute_pair_forces(state, cpu_nlist, morse));
+  double ke0 = compute_ke_host(state.velocities, state.types, state.masses,
+                               state.natoms);
+  double e0 = pe0 + ke0;
 
   // Run to step 1000.
   sched.run_until(1000);
@@ -165,13 +170,14 @@ TEST(PipelineScheduler, PipelineNVEConservation) {
 
   cpu_nlist.build(state.positions.data(), state.natoms, state.box, rc,
                   cfg.r_skin);
-  real pe_f = potentials::compute_pair_forces(state, cpu_nlist, morse);
-  real ke_f = compute_ke_host(state.velocities, state.types, state.masses,
-                              state.natoms);
-  real ef = pe_f + ke_f;
+  double pe_f = static_cast<double>(
+      potentials::compute_pair_forces(state, cpu_nlist, morse));
+  double ke_f = compute_ke_host(state.velocities, state.types, state.masses,
+                                state.natoms);
+  double ef = pe_f + ke_f;
 
-  real drift = std::abs((ef - e0) / e0);
-  EXPECT_LT(drift, real{1e-4})
+  double drift = std::abs((ef - e0) / e0);
+  EXPECT_LT(drift, 1e-4)
       << "Pipeline NVE drift |dE/E| = " << drift;
 }
 

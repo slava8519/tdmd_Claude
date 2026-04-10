@@ -39,9 +39,9 @@ bool SpatialDecomp::owns(real y) const noexcept {
   return y >= y_lo_ && y < y_hi_;
 }
 
-i32 SpatialDecomp::partition_atoms(Vec3* positions, Vec3* velocities,
-                                   Vec3* forces, i32* types, i32* ids,
-                                   i64 natoms) {
+i32 SpatialDecomp::partition_atoms(PositionVec* positions,
+                                   VelocityVec* velocities, ForceVec* forces,
+                                   i32* types, i32* ids, i64 natoms) {
   auto n = static_cast<std::size_t>(natoms);
 
   // Classify: owned (in my Y-slab) vs not-owned.
@@ -67,26 +67,28 @@ i32 SpatialDecomp::partition_atoms(Vec3* positions, Vec3* velocities,
   }
 
   // Apply permutation.
-  std::vector<Vec3> tmp_v3(n);
+  std::vector<PositionVec> tmp_pos(n);
+  std::vector<VelocityVec> tmp_vel(n);
+  std::vector<ForceVec> tmp_force(n);
   std::vector<i32> tmp_i32(n);
 
   // Positions.
   for (std::size_t i = 0; i < n; ++i) {
-    tmp_v3[i] = positions[static_cast<std::size_t>(perm[i])];
+    tmp_pos[i] = positions[static_cast<std::size_t>(perm[i])];
   }
-  std::copy(tmp_v3.begin(), tmp_v3.end(), positions);
+  std::copy(tmp_pos.begin(), tmp_pos.end(), positions);
 
   // Velocities.
   for (std::size_t i = 0; i < n; ++i) {
-    tmp_v3[i] = velocities[static_cast<std::size_t>(perm[i])];
+    tmp_vel[i] = velocities[static_cast<std::size_t>(perm[i])];
   }
-  std::copy(tmp_v3.begin(), tmp_v3.end(), velocities);
+  std::copy(tmp_vel.begin(), tmp_vel.end(), velocities);
 
   // Forces.
   for (std::size_t i = 0; i < n; ++i) {
-    tmp_v3[i] = forces[static_cast<std::size_t>(perm[i])];
+    tmp_force[i] = forces[static_cast<std::size_t>(perm[i])];
   }
-  std::copy(tmp_v3.begin(), tmp_v3.end(), forces);
+  std::copy(tmp_force.begin(), tmp_force.end(), forces);
 
   // Types.
   for (std::size_t i = 0; i < n; ++i) {
@@ -103,7 +105,8 @@ i32 SpatialDecomp::partition_atoms(Vec3* positions, Vec3* velocities,
   return n_owned;
 }
 
-void SpatialDecomp::identify_send_ghosts(const Vec3* positions, i32 n_owned,
+void SpatialDecomp::identify_send_ghosts(const PositionVec* positions,
+                                         i32 n_owned,
                                          std::vector<i32>& send_to_prev,
                                          std::vector<i32>& send_to_next) const {
   send_to_prev.clear();
@@ -112,7 +115,7 @@ void SpatialDecomp::identify_send_ghosts(const Vec3* positions, i32 n_owned,
   real box_ly = static_cast<real>(box_.hi.y - box_.lo.y);
 
   for (i32 i = 0; i < n_owned; ++i) {
-    real y = positions[static_cast<std::size_t>(i)].y;
+    real y = static_cast<real>(positions[static_cast<std::size_t>(i)].y);
 
     // Distance from atom to lower boundary of this subdomain.
     real dist_lo = y - y_lo_;

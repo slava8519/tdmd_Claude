@@ -21,7 +21,7 @@ class CellList {
   /// @param natoms Number of atoms.
   /// @param box Simulation box.
   /// @param r_list Cutoff + skin distance. Cells will have side >= r_list.
-  void build(const Vec3* positions, i64 natoms, const Box& box, real r_list);
+  void build(const PositionVec* positions, i64 natoms, const Box& box, real r_list);
 
   /// Number of cells along each axis.
   [[nodiscard]] i32 ncells_x() const noexcept { return ncx_; }
@@ -30,7 +30,7 @@ class CellList {
   [[nodiscard]] i32 ncells_total() const noexcept { return ncx_ * ncy_ * ncz_; }
 
   /// Cell size along each axis.
-  [[nodiscard]] Vec3 cell_size() const noexcept { return cell_size_; }
+  [[nodiscard]] Vec3D cell_size() const noexcept { return cell_size_; }
 
   /// Number of atoms in cell `cell_id`.
   [[nodiscard]] i32 count(i32 cell_id) const noexcept {
@@ -56,15 +56,11 @@ class CellList {
   }
 
   /// Cell index for a given position.
-  /// `lo` is Vec3D (geometry stored in double per ADR 0007); the subtraction
-  /// promotes to double then casts to i32.
-  [[nodiscard]] i32 cell_of(Vec3 pos, Vec3D lo) const noexcept {
-    auto ix = static_cast<i32>((static_cast<double>(pos.x) - lo.x) /
-                               static_cast<double>(cell_size_.x));
-    auto iy = static_cast<i32>((static_cast<double>(pos.y) - lo.y) /
-                               static_cast<double>(cell_size_.y));
-    auto iz = static_cast<i32>((static_cast<double>(pos.z) - lo.z) /
-                               static_cast<double>(cell_size_.z));
+  /// `pos` and `lo` are Vec3D (geometry stored in double per ADR 0007).
+  [[nodiscard]] i32 cell_of(PositionVec pos, Vec3D lo) const noexcept {
+    auto ix = static_cast<i32>((pos.x - lo.x) / cell_size_.x);
+    auto iy = static_cast<i32>((pos.y - lo.y) / cell_size_.y);
+    auto iz = static_cast<i32>((pos.z - lo.z) / cell_size_.z);
     // Clamp to valid range (handles edge cases at boundary).
     if (ix >= ncx_) ix = ncx_ - 1;
     if (iy >= ncy_) iy = ncy_ - 1;
@@ -77,7 +73,7 @@ class CellList {
 
  private:
   i32 ncx_{0}, ncy_{0}, ncz_{0};
-  Vec3 cell_size_{0, 0, 0};
+  Vec3D cell_size_{0, 0, 0};
   std::vector<i32> cell_counts_;   // length = ncells_total
   std::vector<i32> cell_offsets_;  // length = ncells_total (prefix sum)
   std::vector<i32> cell_atoms_;    // length = natoms, sorted by cell

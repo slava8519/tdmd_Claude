@@ -35,12 +35,13 @@ TEST(DeviceEam, MatchesCPUForces256Atoms) {
   neighbors::NeighborList cpu_nlist;
   cpu_nlist.build(state.positions.data(), state.natoms, state.box, rc, skin);
   real cpu_energy = eam.compute_forces(state, cpu_nlist);
-  std::vector<Vec3> cpu_forces = state.forces;
+  std::vector<ForceVec> cpu_forces = state.forces;
 
   // --- GPU forces ---
   auto n = static_cast<std::size_t>(state.natoms);
 
-  DeviceBuffer<Vec3> d_pos(n), d_forces(n);
+  DeviceBuffer<PositionVec> d_pos(n);
+  DeviceBuffer<ForceVec> d_forces(n);
   DeviceBuffer<i32> d_types(n);
   d_pos.copy_from_host(state.positions.data(), n);
   d_forces.zero();
@@ -62,7 +63,7 @@ TEST(DeviceEam, MatchesCPUForces256Atoms) {
   TDMD_CUDA_CHECK(cudaDeviceSynchronize());
 
   // Download results.
-  std::vector<Vec3> gpu_forces(n);
+  std::vector<ForceVec> gpu_forces(n);
   d_forces.copy_to_host(gpu_forces.data(), n);
 
   accum_t gpu_energy = 0;

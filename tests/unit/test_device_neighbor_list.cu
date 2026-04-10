@@ -22,22 +22,22 @@ TEST(DeviceNeighborList, FullListSymmetry) {
   box.periodic = {true, true, true};
 
   // 4x4x2 grid.
-  std::vector<Vec3> h_pos(static_cast<std::size_t>(N));
-  real sp = real{2.5};
+  std::vector<PositionVec> h_pos(static_cast<std::size_t>(N));
+  double sp = 2.5;
   i32 idx = 0;
   for (i32 iz = 0; iz < 2; ++iz) {
     for (i32 iy = 0; iy < 4; ++iy) {
       for (i32 ix = 0; ix < 4; ++ix) {
         h_pos[static_cast<std::size_t>(idx)] = {
-            static_cast<real>(ix) * sp + real{0.5},
-            static_cast<real>(iy) * sp + real{0.5},
-            static_cast<real>(iz) * sp + real{0.5}};
+            static_cast<double>(ix) * sp + 0.5,
+            static_cast<double>(iy) * sp + 0.5,
+            static_cast<double>(iz) * sp + 0.5};
         ++idx;
       }
     }
   }
 
-  DeviceBuffer<Vec3> d_pos(static_cast<std::size_t>(N));
+  DeviceBuffer<PositionVec> d_pos(static_cast<std::size_t>(N));
   d_pos.copy_from_host(h_pos.data(), static_cast<std::size_t>(N));
 
   neighbors::DeviceNeighborList dnl;
@@ -83,16 +83,16 @@ TEST(DeviceNeighborList, MatchesCPUHalfListPairCount) {
   box.hi = {14.46, 14.46, 14.46};
   box.periodic = {true, true, true};
 
-  std::vector<Vec3> h_pos(static_cast<std::size_t>(N));
-  real spacing = real{14.46} / real{8};
+  std::vector<PositionVec> h_pos(static_cast<std::size_t>(N));
+  double spacing = 14.46 / 8.0;
   i32 idx = 0;
   for (i32 iz = 0; iz < 8 && idx < N; ++iz) {
     for (i32 iy = 0; iy < 8 && idx < N; ++iy) {
       for (i32 ix = 0; ix < 8 && idx < N; ++ix) {
         h_pos[static_cast<std::size_t>(idx)] = {
-            (static_cast<real>(ix) + real{0.5}) * spacing,
-            (static_cast<real>(iy) + real{0.5}) * spacing,
-            (static_cast<real>(iz) + real{0.5}) * spacing};
+            (static_cast<double>(ix) + 0.5) * spacing,
+            (static_cast<double>(iy) + 0.5) * spacing,
+            (static_cast<double>(iz) + 0.5) * spacing};
         ++idx;
       }
     }
@@ -110,7 +110,7 @@ TEST(DeviceNeighborList, MatchesCPUHalfListPairCount) {
   }
 
   // GPU full-list.
-  DeviceBuffer<Vec3> d_pos(static_cast<std::size_t>(N));
+  DeviceBuffer<PositionVec> d_pos(static_cast<std::size_t>(N));
   d_pos.copy_from_host(h_pos.data(), static_cast<std::size_t>(N));
 
   neighbors::DeviceNeighborList dnl;

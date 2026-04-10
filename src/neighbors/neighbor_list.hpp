@@ -26,12 +26,12 @@ class NeighborList {
   /// @param box Simulation box.
   /// @param r_cut Force cutoff radius.
   /// @param r_skin Skin distance (list stores pairs within r_cut + r_skin).
-  void build(const Vec3* positions, i64 natoms, const Box& box,
+  void build(const PositionVec* positions, i64 natoms, const Box& box,
              real r_cut, real r_skin);
 
   /// Check if any atom has moved more than r_skin/2 since last build.
   /// If so, the list needs rebuilding.
-  [[nodiscard]] bool needs_rebuild(const Vec3* positions, i64 natoms) const;
+  [[nodiscard]] bool needs_rebuild(const PositionVec* positions, i64 natoms) const;
 
   /// Number of neighbors of atom i.
   [[nodiscard]] i32 count(i64 i) const noexcept {
@@ -52,7 +52,7 @@ class NeighborList {
   std::vector<i32> neighbors_;
   std::vector<i32> offsets_;
   std::vector<i32> counts_;
-  std::vector<Vec3> build_positions_;  // snapshot at build time for skin check
+  std::vector<PositionVec> build_positions_;  // snapshot at build time for skin check
   domain::CellList cell_list_;
 };
 

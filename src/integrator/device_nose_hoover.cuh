@@ -65,7 +65,7 @@ class NoseHooverChain {
 /// @param d_masses Device array of per-type masses.
 /// @param natoms Number of atoms.
 /// @return Total kinetic energy in eV (always double precision).
-[[nodiscard]] accum_t device_compute_ke(const Vec3* d_velocities,
+[[nodiscard]] accum_t device_compute_ke(const VelocityVec* d_velocities,
                                         const i32* d_types,
                                         const real* d_masses, i32 natoms);
 
@@ -73,10 +73,10 @@ class NoseHooverChain {
 /// @param d_velocities Device array of velocities.
 /// @param natoms Number of atoms.
 /// @param factor Scale factor.
-void device_scale_velocities(Vec3* d_velocities, i32 natoms, real factor);
+void device_scale_velocities(VelocityVec* d_velocities, i32 natoms, real factor);
 
 /// @brief Scale velocities for a zone range on GPU.
-void device_scale_velocities_zone(Vec3* d_velocities, i32 first_atom,
+void device_scale_velocities_zone(VelocityVec* d_velocities, i32 first_atom,
                                   i32 atom_count, real factor,
                                   cudaStream_t stream = nullptr);
 
@@ -84,7 +84,7 @@ void device_scale_velocities_zone(Vec3* d_velocities, i32 first_atom,
 /// @param d_velocities Device array of velocities.
 /// @param natoms Number of atoms.
 /// @return Maximum speed (Å/ps, always double precision).
-[[nodiscard]] accum_t device_compute_vmax(const Vec3* d_velocities,
+[[nodiscard]] accum_t device_compute_vmax(const VelocityVec* d_velocities,
                                           i32 natoms);
 
 }  // namespace tdmd::integrator

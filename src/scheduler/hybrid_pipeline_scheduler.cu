@@ -29,11 +29,12 @@ namespace tdmd::scheduler {
 static constexpr std::size_t kHeaderBytes = 3 * sizeof(i32);
 
 static std::size_t packed_zone_size(i32 natoms) {
-  return kHeaderBytes + static_cast<std::size_t>(natoms) * 2 * sizeof(Vec3);
+  return kHeaderBytes + static_cast<std::size_t>(natoms) *
+                            (sizeof(PositionVec) + sizeof(VelocityVec));
 }
 
 static void pack_zone(char* buf, i32 zone_id, i32 time_step, i32 natoms,
-                       const Vec3* pos, const Vec3* vel) {
+                       const PositionVec* pos, const VelocityVec* vel) {
   std::memcpy(buf, &zone_id, sizeof(i32));
   buf += sizeof(i32);
   std::memcpy(buf, &time_step, sizeof(i32));
@@ -41,13 +42,13 @@ static void pack_zone(char* buf, i32 zone_id, i32 time_step, i32 natoms,
   std::memcpy(buf, &natoms, sizeof(i32));
   buf += sizeof(i32);
   auto n = static_cast<std::size_t>(natoms);
-  std::memcpy(buf, pos, n * sizeof(Vec3));
-  buf += static_cast<std::ptrdiff_t>(n * sizeof(Vec3));
-  std::memcpy(buf, vel, n * sizeof(Vec3));
+  std::memcpy(buf, pos, n * sizeof(PositionVec));
+  buf += static_cast<std::ptrdiff_t>(n * sizeof(PositionVec));
+  std::memcpy(buf, vel, n * sizeof(VelocityVec));
 }
 
 static void unpack_zone(const char* buf, i32& zone_id, i32& time_step,
-                         i32& natoms, Vec3* pos, Vec3* vel) {
+                         i32& natoms, PositionVec* pos, VelocityVec* vel) {
   std::memcpy(&zone_id, buf, sizeof(i32));
   buf += sizeof(i32);
   std::memcpy(&time_step, buf, sizeof(i32));
@@ -55,9 +56,9 @@ static void unpack_zone(const char* buf, i32& zone_id, i32& time_step,
   std::memcpy(&natoms, buf, sizeof(i32));
   buf += sizeof(i32);
   auto n = static_cast<std::size_t>(natoms);
-  std::memcpy(pos, buf, n * sizeof(Vec3));
-  buf += static_cast<std::ptrdiff_t>(n * sizeof(Vec3));
-  std::memcpy(vel, buf, n * sizeof(Vec3));
+  std::memcpy(pos, buf, n * sizeof(PositionVec));
+  buf += static_cast<std::ptrdiff_t>(n * sizeof(PositionVec));
+  std::memcpy(vel, buf, n * sizeof(VelocityVec));
 }
 
 // ---- Constructor ----
@@ -183,8 +184,9 @@ i32 HybridPipelineScheduler::zone_time_step(i32 z_id) const {
 // ---- Upload ----
 
 void HybridPipelineScheduler::upload(
-    const Vec3* positions, const Vec3* velocities, const Vec3* forces,
-    const i32* types, const i32* ids, const real* masses, i32 n_masses) {
+    const PositionVec* positions, const VelocityVec* velocities,
+    const ForceVec* forces, const i32* types, const i32* ids,
+    const real* masses, i32 n_masses) {
   auto n = static_cast<std::size_t>(natoms_global_);
 
   // Make working copies of all atom data.
@@ -216,7 +218,8 @@ void HybridPipelineScheduler::upload(
 
   // Perform initial halo exchange to get ghost atoms from spatial neighbors.
   // Pack send buffers for prev and next.
-  std::vector<Vec3> send_prev_pos, send_prev_vel;
+  std::vector<PositionVec> send_prev_pos;
+  std::vector<VelocityVec> send_prev_vel;
   std::vector<i32> send_prev_types, send_prev_ids;
   for (i32 idx : send_prev_indices_) {
     auto si = static_cast<std::size_t>(idx);
@@ -226,7 +229,8 @@ void HybridPipelineScheduler::upload(
     send_prev_ids.push_back(h_ids_[si]);
   }
 
-  std::vector<Vec3> send_next_pos, send_next_vel;
+  std::vector<PositionVec> send_next_pos;
+  std::vector<VelocityVec> send_next_vel;
   std::vector<i32> send_next_types, send_next_ids;
   for (i32 idx : send_next_indices_) {
     auto si = static_cast<std::size_t>(idx);
@@ -250,41 +254,46 @@ void HybridPipelineScheduler::upload(
                space_comm_, MPI_STATUS_IGNORE);
 
   // Receive ghost atoms.
-  std::vector<Vec3> recv_prev_pos(static_cast<std::size_t>(recv_prev_count));
-  std::vector<Vec3> recv_prev_vel(static_cast<std::size_t>(recv_prev_count));
+  std::vector<PositionVec> recv_prev_pos(static_cast<std::size_t>(recv_prev_count));
+  std::vector<VelocityVec> recv_prev_vel(static_cast<std::size_t>(recv_prev_count));
   std::vector<i32> recv_prev_types(static_cast<std::size_t>(recv_prev_count));
   std::vector<i32> recv_prev_ids(static_cast<std::size_t>(recv_prev_count));
 
-  std::vector<Vec3> recv_next_pos(static_cast<std::size_t>(recv_next_count));
-  std::vector<Vec3> recv_next_vel(static_cast<std::size_t>(recv_next_count));
+  std::vector<PositionVec> recv_next_pos(static_cast<std::size_t>(recv_next_count));
+  std::vector<VelocityVec> recv_next_vel(static_cast<std::size_t>(recv_next_count));
   std::vector<i32> recv_next_types(static_cast<std::size_t>(recv_next_count));
   std::vector<i32> recv_next_ids(static_cast<std::size_t>(recv_next_count));
 
-  auto vec3_bytes = [](i32 count) {
-    return static_cast<int>(static_cast<std::size_t>(count) * sizeof(Vec3));
+  auto pos_bytes = [](i32 count) {
+    return static_cast<int>(static_cast<std::size_t>(count) *
+                            sizeof(PositionVec));
+  };
+  auto vel_bytes = [](i32 count) {
+    return static_cast<int>(static_cast<std::size_t>(count) *
+                            sizeof(VelocityVec));
   };
   auto i32_bytes = [](i32 count) {
     return static_cast<int>(static_cast<std::size_t>(count) * sizeof(i32));
   };
 
   // Exchange positions.
-  MPI_Sendrecv(send_next_pos.data(), vec3_bytes(send_next_count), MPI_BYTE,
+  MPI_Sendrecv(send_next_pos.data(), pos_bytes(send_next_count), MPI_BYTE,
                space_next_, 110, recv_prev_pos.data(),
-               vec3_bytes(recv_prev_count), MPI_BYTE, space_prev_, 110,
+               pos_bytes(recv_prev_count), MPI_BYTE, space_prev_, 110,
                space_comm_, MPI_STATUS_IGNORE);
-  MPI_Sendrecv(send_prev_pos.data(), vec3_bytes(send_prev_count), MPI_BYTE,
+  MPI_Sendrecv(send_prev_pos.data(), pos_bytes(send_prev_count), MPI_BYTE,
                space_prev_, 111, recv_next_pos.data(),
-               vec3_bytes(recv_next_count), MPI_BYTE, space_next_, 111,
+               pos_bytes(recv_next_count), MPI_BYTE, space_next_, 111,
                space_comm_, MPI_STATUS_IGNORE);
 
   // Exchange velocities.
-  MPI_Sendrecv(send_next_vel.data(), vec3_bytes(send_next_count), MPI_BYTE,
+  MPI_Sendrecv(send_next_vel.data(), vel_bytes(send_next_count), MPI_BYTE,
                space_next_, 120, recv_prev_vel.data(),
-               vec3_bytes(recv_prev_count), MPI_BYTE, space_prev_, 120,
+               vel_bytes(recv_prev_count), MPI_BYTE, space_prev_, 120,
                space_comm_, MPI_STATUS_IGNORE);
-  MPI_Sendrecv(send_prev_vel.data(), vec3_bytes(send_prev_count), MPI_BYTE,
+  MPI_Sendrecv(send_prev_vel.data(), vel_bytes(send_prev_count), MPI_BYTE,
                space_prev_, 121, recv_next_vel.data(),
-               vec3_bytes(recv_next_count), MPI_BYTE, space_next_, 121,
+               vel_bytes(recv_next_count), MPI_BYTE, space_next_, 121,
                space_comm_, MPI_STATUS_IGNORE);
 
   // Exchange types.
@@ -310,7 +319,11 @@ void HybridPipelineScheduler::upload(
   // Collect all received ghost atoms, then deduplicate by ID.
   // Dedup is needed when space_prev == space_next (2-rank case) where
   // the same atom can arrive via both send_to_prev and send_to_next.
-  struct GhostAtom { Vec3 pos, vel; i32 type, id; };
+  struct GhostAtom {
+    PositionVec pos;
+    VelocityVec vel;
+    i32 type, id;
+  };
   std::vector<GhostAtom> all_ghosts;
   all_ghosts.reserve(
       static_cast<std::size_t>(recv_prev_count + recv_next_count));
@@ -356,7 +369,7 @@ void HybridPipelineScheduler::upload(
   for (std::size_t i = 0; i < all_ghosts.size(); ++i) {
     h_pos_[off + i] = all_ghosts[i].pos;
     h_vel_[off + i] = all_ghosts[i].vel;
-    h_forces_[off + i] = Vec3{0, 0, 0};
+    h_forces_[off + i] = ForceVec{0, 0, 0};
     h_types_[off + i] = all_ghosts[i].type;
     h_ids_[off + i] = all_ghosts[i].id;
   }
@@ -402,8 +415,8 @@ void HybridPipelineScheduler::halo_exchange() {
                                 send_prev_indices_, send_next_indices_);
 
   // Pack send buffers.
-  std::vector<Vec3> send_next_pos, send_prev_pos;
-  std::vector<Vec3> send_next_vel, send_prev_vel;
+  std::vector<PositionVec> send_next_pos, send_prev_pos;
+  std::vector<VelocityVec> send_next_vel, send_prev_vel;
   for (i32 idx : send_next_indices_) {
     auto si = static_cast<std::size_t>(idx);
     send_next_pos.push_back(h_pos_[si]);
@@ -429,31 +442,34 @@ void HybridPipelineScheduler::halo_exchange() {
                space_comm_, MPI_STATUS_IGNORE);
 
   // Receive ghost positions/velocities into temporary buffers.
-  std::vector<Vec3> recv_prev_pos(static_cast<std::size_t>(recv_prev_count));
-  std::vector<Vec3> recv_prev_vel(static_cast<std::size_t>(recv_prev_count));
-  std::vector<Vec3> recv_next_pos(static_cast<std::size_t>(recv_next_count));
-  std::vector<Vec3> recv_next_vel(static_cast<std::size_t>(recv_next_count));
+  std::vector<PositionVec> recv_prev_pos(static_cast<std::size_t>(recv_prev_count));
+  std::vector<VelocityVec> recv_prev_vel(static_cast<std::size_t>(recv_prev_count));
+  std::vector<PositionVec> recv_next_pos(static_cast<std::size_t>(recv_next_count));
+  std::vector<VelocityVec> recv_next_vel(static_cast<std::size_t>(recv_next_count));
 
-  auto vec3_bytes = [](i32 n) {
-    return static_cast<int>(static_cast<std::size_t>(n) * sizeof(Vec3));
+  auto pos_bytes = [](i32 n) {
+    return static_cast<int>(static_cast<std::size_t>(n) * sizeof(PositionVec));
+  };
+  auto vel_bytes = [](i32 n) {
+    return static_cast<int>(static_cast<std::size_t>(n) * sizeof(VelocityVec));
   };
 
-  MPI_Sendrecv(send_next_pos.data(), vec3_bytes(send_next_count), MPI_BYTE,
+  MPI_Sendrecv(send_next_pos.data(), pos_bytes(send_next_count), MPI_BYTE,
                space_next_, 210, recv_prev_pos.data(),
-               vec3_bytes(recv_prev_count), MPI_BYTE, space_prev_, 210,
+               pos_bytes(recv_prev_count), MPI_BYTE, space_prev_, 210,
                space_comm_, MPI_STATUS_IGNORE);
-  MPI_Sendrecv(send_prev_pos.data(), vec3_bytes(send_prev_count), MPI_BYTE,
+  MPI_Sendrecv(send_prev_pos.data(), pos_bytes(send_prev_count), MPI_BYTE,
                space_prev_, 211, recv_next_pos.data(),
-               vec3_bytes(recv_next_count), MPI_BYTE, space_next_, 211,
+               pos_bytes(recv_next_count), MPI_BYTE, space_next_, 211,
                space_comm_, MPI_STATUS_IGNORE);
 
-  MPI_Sendrecv(send_next_vel.data(), vec3_bytes(send_next_count), MPI_BYTE,
+  MPI_Sendrecv(send_next_vel.data(), vel_bytes(send_next_count), MPI_BYTE,
                space_next_, 220, recv_prev_vel.data(),
-               vec3_bytes(recv_prev_count), MPI_BYTE, space_prev_, 220,
+               vel_bytes(recv_prev_count), MPI_BYTE, space_prev_, 220,
                space_comm_, MPI_STATUS_IGNORE);
-  MPI_Sendrecv(send_prev_vel.data(), vec3_bytes(send_prev_count), MPI_BYTE,
+  MPI_Sendrecv(send_prev_vel.data(), vel_bytes(send_prev_count), MPI_BYTE,
                space_prev_, 221, recv_next_vel.data(),
-               vec3_bytes(recv_next_count), MPI_BYTE, space_next_, 221,
+               vel_bytes(recv_next_count), MPI_BYTE, space_next_, 221,
                space_comm_, MPI_STATUS_IGNORE);
 
   // Also exchange atom IDs for deduplication (with P_space=2, prev==next
@@ -484,7 +500,11 @@ void HybridPipelineScheduler::halo_exchange() {
                space_comm_, MPI_STATUS_IGNORE);
 
   // Collect and deduplicate.
-  struct HaloFull { Vec3 pos, vel; i32 id; };
+  struct HaloFull {
+    PositionVec pos;
+    VelocityVec vel;
+    i32 id;
+  };
   std::vector<HaloFull> deduped;
   deduped.reserve(
       static_cast<std::size_t>(recv_prev_count + recv_next_count));
@@ -564,8 +584,8 @@ void HybridPipelineScheduler::td_exchange_boundary_data() {
       const auto& z = zones[sz];
       i32 count = z.natoms_in_zone;
 
-      std::vector<Vec3> pos(static_cast<std::size_t>(count));
-      std::vector<Vec3> vel(static_cast<std::size_t>(count));
+      std::vector<PositionVec> pos(static_cast<std::size_t>(count));
+      std::vector<VelocityVec> vel(static_cast<std::size_t>(count));
       d_pos_.copy_to_host(pos.data(), static_cast<std::size_t>(count),
                           static_cast<std::size_t>(z.atom_offset));
       d_vel_.copy_to_host(vel.data(), static_cast<std::size_t>(count),
@@ -588,8 +608,8 @@ void HybridPipelineScheduler::td_exchange_boundary_data() {
       std::memcpy(&ts, p + sizeof(i32), sizeof(i32));
       std::memcpy(&nat, p + 2 * sizeof(i32), sizeof(i32));
 
-      std::vector<Vec3> pos(static_cast<std::size_t>(nat));
-      std::vector<Vec3> vel(static_cast<std::size_t>(nat));
+      std::vector<PositionVec> pos(static_cast<std::size_t>(nat));
+      std::vector<VelocityVec> vel(static_cast<std::size_t>(nat));
       unpack_zone(p, z_id, ts, nat, pos.data(), vel.data());
       p += static_cast<std::ptrdiff_t>(packed_zone_size(nat));
 
@@ -831,8 +851,9 @@ i32 HybridPipelineScheduler::min_global_time_step() {
   return global_min;
 }
 
-void HybridPipelineScheduler::download(Vec3* positions, Vec3* velocities,
-                                       Vec3* forces, i32* types, i32* ids,
+void HybridPipelineScheduler::download(PositionVec* positions,
+                                       VelocityVec* velocities,
+                                       ForceVec* forces, i32* types, i32* ids,
                                        i32 natoms) const {
   // Download only owned atoms. The caller passes the full array, but we fill
   // only the first n_owned_ elements (caller gathers via MPI if needed).

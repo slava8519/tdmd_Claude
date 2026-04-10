@@ -20,7 +20,7 @@ using namespace tdmd;
 using namespace tdmd::testing;
 
 // Compare GPU forces (indexed by state.ids) against LAMMPS DumpAtom (sorted by id).
-static real max_force_diff(const std::vector<Vec3>& gpu_forces,
+static real max_force_diff(const std::vector<ForceVec>& gpu_forces,
                            const std::vector<i32>& gpu_ids,
                            const std::vector<io::DumpAtom>& ref) {
   real max_d = 0;
@@ -47,7 +47,8 @@ TEST(DeviceLammpsAB, MorseRun0ForceMatch) {
   auto n = static_cast<std::size_t>(state.natoms);
 
   // GPU force compute.
-  DeviceBuffer<Vec3> d_pos(n), d_forces(n);
+  DeviceBuffer<PositionVec> d_pos(n);
+  DeviceBuffer<ForceVec> d_forces(n);
   d_pos.copy_from_host(state.positions.data(), n);
   d_forces.zero();
 
@@ -62,7 +63,7 @@ TEST(DeviceLammpsAB, MorseRun0ForceMatch) {
                                 params, nullptr);
   TDMD_CUDA_CHECK(cudaDeviceSynchronize());
 
-  std::vector<Vec3> gpu_forces(n);
+  std::vector<ForceVec> gpu_forces(n);
   d_forces.copy_to_host(gpu_forces.data(), n);
 
   // Read LAMMPS reference.
@@ -86,7 +87,8 @@ TEST(DeviceLammpsAB, EamRun0ForceMatch) {
 
   auto n = static_cast<std::size_t>(state.natoms);
 
-  DeviceBuffer<Vec3> d_pos(n), d_forces(n);
+  DeviceBuffer<PositionVec> d_pos(n);
+  DeviceBuffer<ForceVec> d_forces(n);
   DeviceBuffer<i32> d_types(n);
   d_pos.copy_from_host(state.positions.data(), n);
   d_forces.zero();
@@ -103,7 +105,7 @@ TEST(DeviceLammpsAB, EamRun0ForceMatch) {
                   state.box, nullptr);
   TDMD_CUDA_CHECK(cudaDeviceSynchronize());
 
-  std::vector<Vec3> gpu_forces(n);
+  std::vector<ForceVec> gpu_forces(n);
   d_forces.copy_to_host(gpu_forces.data(), n);
 
   auto ref = io::read_lammps_dump(data_dir + "/reference/forces_eam.dump");

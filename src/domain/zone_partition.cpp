@@ -47,8 +47,8 @@ i32 ZonePartition::zone_of(real x) const noexcept {
   return z;
 }
 
-void ZonePartition::assign_atoms(Vec3* positions, Vec3* velocities,
-                                 Vec3* forces, i32* types, i32* ids,
+void ZonePartition::assign_atoms(PositionVec* positions, VelocityVec* velocities,
+                                 ForceVec* forces, i32* types, i32* ids,
                                  i64 natoms) {
   auto n = static_cast<std::size_t>(natoms);
 
@@ -82,26 +82,28 @@ void ZonePartition::assign_atoms(Vec3* positions, Vec3* velocities,
   }
 
   // Apply permutation to all arrays.
-  std::vector<Vec3> tmp_v3(n);
+  std::vector<PositionVec> tmp_pos(n);
+  std::vector<VelocityVec> tmp_vel(n);
+  std::vector<ForceVec> tmp_force(n);
   std::vector<i32> tmp_i32(n);
 
   // Positions.
   for (std::size_t i = 0; i < n; ++i) {
-    tmp_v3[i] = positions[static_cast<std::size_t>(perm[i])];
+    tmp_pos[i] = positions[static_cast<std::size_t>(perm[i])];
   }
-  std::copy(tmp_v3.begin(), tmp_v3.end(), positions);
+  std::copy(tmp_pos.begin(), tmp_pos.end(), positions);
 
   // Velocities.
   for (std::size_t i = 0; i < n; ++i) {
-    tmp_v3[i] = velocities[static_cast<std::size_t>(perm[i])];
+    tmp_vel[i] = velocities[static_cast<std::size_t>(perm[i])];
   }
-  std::copy(tmp_v3.begin(), tmp_v3.end(), velocities);
+  std::copy(tmp_vel.begin(), tmp_vel.end(), velocities);
 
   // Forces.
   for (std::size_t i = 0; i < n; ++i) {
-    tmp_v3[i] = forces[static_cast<std::size_t>(perm[i])];
+    tmp_force[i] = forces[static_cast<std::size_t>(perm[i])];
   }
-  std::copy(tmp_v3.begin(), tmp_v3.end(), forces);
+  std::copy(tmp_force.begin(), tmp_force.end(), forces);
 
   // Types.
   for (std::size_t i = 0; i < n; ++i) {

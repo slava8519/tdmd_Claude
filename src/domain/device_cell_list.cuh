@@ -16,11 +16,12 @@ namespace tdmd::domain {
 class DeviceCellList {
  public:
   /// @brief Build cell list on the GPU.
-  /// @param d_positions Device pointer to Vec3 array (length natoms).
+  /// @param d_positions Device pointer to PositionVec (Vec3D) array.
   /// @param natoms Number of atoms.
   /// @param box Simulation box (host).
   /// @param r_list Cutoff + skin.
-  void build(const Vec3* d_positions, i64 natoms, const Box& box, real r_list);
+  void build(const PositionVec* d_positions, i64 natoms, const Box& box,
+             real r_list);
 
   [[nodiscard]] i32 ncells_x() const noexcept { return ncx_; }
   [[nodiscard]] i32 ncells_y() const noexcept { return ncy_; }
@@ -40,11 +41,11 @@ class DeviceCellList {
     return cell_atoms_.data();
   }
 
-  [[nodiscard]] Vec3 cell_size() const noexcept { return cell_size_; }
+  [[nodiscard]] Vec3D cell_size() const noexcept { return cell_size_; }
 
  private:
   i32 ncx_{0}, ncy_{0}, ncz_{0};
-  Vec3 cell_size_{0, 0, 0};
+  Vec3D cell_size_{0, 0, 0};
 
   DeviceBuffer<i32> cell_counts_;   // length = ncells
   DeviceBuffer<i32> cell_offsets_;  // length = ncells (exclusive prefix sum)
