@@ -1,0 +1,17 @@
+LAMMPS data file: two atoms of type 1, mass 1.0, for VerifyLab two-atoms-morse
+
+2 atoms
+1 atom types
+
+0.0 20.0 xlo xhi
+0.0 20.0 ylo yhi
+0.0 20.0 zlo zhi
+
+Masses
+
+1 1.0
+
+Atoms # atomic
+
+1 1 0.0 0.0 0.0
+2 1 2.5 0.0 0.0

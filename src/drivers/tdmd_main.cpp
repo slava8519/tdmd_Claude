@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <string>
 
 #include "core/constants.hpp"
@@ -33,6 +34,8 @@ struct RunConfig {
   double skin = 1.0;
   // Output.
   int thermo_every = 100;
+  // VerifyLab force dump (step 0, LAMMPS dump format).
+  std::string dump_forces_file;
 };
 
 void print_usage() {
@@ -43,8 +46,45 @@ void print_usage() {
   std::printf("  --morse D,alpha,r0,rc  Morse parameters (default 0.3429,1.3588,2.866,9.5)\n");
   std::printf("  --skin <A>             Neighbor list skin (default 1.0)\n");
   std::printf("  --thermo <N>           Print thermo every N steps (default 100)\n");
+  std::printf("  --dump-forces <file>   Write step-0 forces in LAMMPS dump format\n");
   std::printf("  --version, -v          Print version\n");
   std::printf("  --help, -h             Print this help\n");
+}
+
+/// Write the current system state (positions + forces) as a LAMMPS dump.
+/// Format matches `dump custom id type x y z fx fy fz` — chosen so that
+/// the same parser can compare TDMD output against committed LAMMPS
+/// reference dumps in verifylab/cases/*.
+void write_lammps_force_dump(const tdmd::SystemState& state,
+                             const std::string& path) {
+  std::ofstream out(path);
+  if (!out) {
+    std::fprintf(stderr, "Error: cannot open %s for writing\n", path.c_str());
+    return;
+  }
+  out.precision(17);
+  out << "ITEM: TIMESTEP\n" << state.step << "\n";
+  out << "ITEM: NUMBER OF ATOMS\n" << state.natoms << "\n";
+  out << "ITEM: BOX BOUNDS pp pp pp\n";
+  out << static_cast<double>(state.box.lo.x) << " "
+      << static_cast<double>(state.box.hi.x) << "\n";
+  out << static_cast<double>(state.box.lo.y) << " "
+      << static_cast<double>(state.box.hi.y) << "\n";
+  out << static_cast<double>(state.box.lo.z) << " "
+      << static_cast<double>(state.box.hi.z) << "\n";
+  out << "ITEM: ATOMS id type x y z fx fy fz\n";
+  for (tdmd::i64 i = 0; i < state.natoms; ++i) {
+    auto si = static_cast<std::size_t>(i);
+    const auto& p = state.positions[si];
+    const auto& f = state.forces[si];
+    out << state.ids[si] << " " << state.types[si] << " "
+        << static_cast<double>(p.x) << " "
+        << static_cast<double>(p.y) << " "
+        << static_cast<double>(p.z) << " "
+        << static_cast<double>(f.x) << " "
+        << static_cast<double>(f.y) << " "
+        << static_cast<double>(f.z) << "\n";
+  }
 }
 
 tdmd::real kinetic_energy(const tdmd::SystemState& s) {
@@ -68,7 +108,7 @@ void print_thermo(const tdmd::SystemState& s, tdmd::real pe, tdmd::real ke) {
     temp = tdmd::real{2} * ke /
            (tdmd::real{3} * static_cast<tdmd::real>(s.natoms) * tdmd::kBoltzmann);
   }
-  std::printf("Step %8lld  PE %14.8f  KE %14.8f  TE %14.8f  T %10.4f\n",
+  std::printf("Step %8lld  PE %20.14f  KE %20.14f  TE %20.14f  T %10.4f\n",
               static_cast<long long>(s.step), static_cast<double>(pe),
               static_cast<double>(ke), static_cast<double>(te),
               static_cast<double>(temp));
@@ -99,6 +139,8 @@ int main(int argc, char** argv) {
       cfg.skin = std::atof(argv[++i]);
     } else if (arg == "--thermo" && i + 1 < argc) {
       cfg.thermo_every = std::atoi(argv[++i]);
+    } else if (arg == "--dump-forces" && i + 1 < argc) {
+      cfg.dump_forces_file = argv[++i];
     } else if (arg == "--morse" && i + 1 < argc) {
       // Parse "D,alpha,r0,rc"
       if (std::sscanf(argv[++i], "%lf,%lf,%lf,%lf",
@@ -154,6 +196,11 @@ int main(int argc, char** argv) {
 
   print_thermo(state, pe, ke);
 
+  if (!cfg.dump_forces_file.empty()) {
+    write_lammps_force_dump(state, cfg.dump_forces_file);
+    std::printf("Wrote step-0 force dump to %s\n", cfg.dump_forces_file.c_str());
+  }
+
   // Main MD loop.
   int rebuilds = 0;
   for (int step = 0; step < cfg.nsteps; ++step) {
@@ -175,10 +222,12 @@ int main(int argc, char** argv) {
     }
   }
 
-  ke = kinetic_energy(state);
-  std::printf("\nFinal:\n");
-  print_thermo(state, pe, ke);
-  std::printf("Neighbor list rebuilds: %d\n", rebuilds);
+  if (cfg.nsteps > 0) {
+    ke = kinetic_energy(state);
+    std::printf("\nFinal:\n");
+    print_thermo(state, pe, ke);
+    std::printf("Neighbor list rebuilds: %d\n", rebuilds);
+  }
 
   return 0;
 }

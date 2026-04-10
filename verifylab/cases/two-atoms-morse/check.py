@@ -2,27 +2,41 @@
 """
 VerifyLab check for two-atoms-morse.
 
-Runs TDMD on the case input, then compares step-0 forces and energies against:
-  1. The analytic Morse formula (committed in reference/analytic.json).
-  2. The LAMMPS reference log (committed in reference/lammps.log, M1+).
+Runs tdmd_standalone on input/two_atoms.data, parses the step-0 force dump
+and thermo line, and compares against the analytic Morse reference in
+reference/analytic.json.
 
-Exits 0 on pass, non-zero on fail. Prints a summary table either way.
+Usage:
+  python3 check.py                              # uses default binary
+  python3 check.py --tdmd-bin <path>            # override binary
+  python3 check.py --mode {mixed,fp64}          # pick tolerance column
+  TDMD_BIN=<path> python3 check.py              # env var alternative
 
-This is a STUB until M1 — currently it parses the analytic reference and
-prints what it WOULD compare. The actual TDMD invocation lives behind a
-TODO that the M1 implementer will fill in.
+Exit codes: 0 = PASS, 1 = FAIL, 2 = setup error.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import math
+import os
+import re
+import subprocess
 import sys
-import tomllib  # Python 3.11+
+import tempfile
+import tomllib
 from pathlib import Path
 
 CASE_DIR = Path(__file__).parent
+REPO_ROOT = CASE_DIR.parents[2]
 TOL_PATH = CASE_DIR / "tolerance.toml"
 ANALYTIC_PATH = CASE_DIR / "reference" / "analytic.json"
+DATA_PATH = CASE_DIR / "input" / "two_atoms.data"
+
+DEFAULT_BIN_MIXED = REPO_ROOT / "build-mixed" / "tdmd_standalone"
+DEFAULT_BIN_FP64 = REPO_ROOT / "build-fp64" / "tdmd_standalone"
+
+MORSE_PARAMS = "0.5,1.5,2.0,8.0"  # D0, alpha, r0, cutoff — matches analytic.json
 
 
 def load_tolerances() -> dict:
@@ -35,56 +49,200 @@ def load_analytic() -> dict:
         return json.load(f)
 
 
-def compute_morse(r: float, D0: float, alpha: float, r0: float) -> tuple[float, float]:
-    """Return (U, F) for the Morse potential at distance r."""
-    e = math.exp(-alpha * (r - r0))
-    U = D0 * (e * e - 2.0 * e)
-    # F = -dU/dr; positive means repulsive, negative means attractive.
-    F = 2.0 * alpha * D0 * (e * e - e)
-    return U, F
+def parse_lammps_dump(path: Path) -> dict:
+    """Parse a LAMMPS custom dump with columns: id type x y z fx fy fz.
+
+    Returns a dict mapping atom id -> {type, pos, force}.
+    """
+    lines = path.read_text().splitlines()
+    idx = 0
+    atoms: dict[int, dict] = {}
+    while idx < len(lines):
+        line = lines[idx].strip()
+        if line.startswith("ITEM: ATOMS"):
+            columns = line.split()[2:]
+            idx += 1
+            while idx < len(lines) and not lines[idx].startswith("ITEM:"):
+                parts = lines[idx].split()
+                row = dict(zip(columns, parts))
+                aid = int(row["id"])
+                atoms[aid] = {
+                    "type": int(row["type"]),
+                    "pos": (float(row["x"]), float(row["y"]), float(row["z"])),
+                    "force": (float(row["fx"]), float(row["fy"]), float(row["fz"])),
+                }
+                idx += 1
+        else:
+            idx += 1
+    return atoms
 
 
-def run_tdmd_and_collect():
-    """
-    M1 TODO: invoke `./build/bin/tdmd input/input.in` and parse log + dump
-    to extract step-0 forces and energies. For now this returns None and the
-    check is skipped.
-    """
-    return None
+THERMO_RE = re.compile(
+    r"Step\s+(\d+)\s+PE\s+([-\d.eE+]+)\s+KE\s+([-\d.eE+]+)\s+TE\s+([-\d.eE+]+)\s+T\s+([-\d.eE+]+)"
+)
+
+
+def parse_first_thermo(stdout: str) -> dict:
+    """Parse the first 'Step N  PE X  KE Y  TE Z  T T' line from stdout."""
+    for line in stdout.splitlines():
+        m = THERMO_RE.search(line)
+        if m:
+            return {
+                "step": int(m.group(1)),
+                "pe": float(m.group(2)),
+                "ke": float(m.group(3)),
+                "te": float(m.group(4)),
+                "temp": float(m.group(5)),
+            }
+    raise RuntimeError("no thermo line found in tdmd_standalone stdout")
+
+
+def run_tdmd(bin_path: Path) -> tuple[dict, dict]:
+    """Invoke tdmd_standalone on the two-atoms input. Returns (thermo, atoms)."""
+    if not bin_path.exists():
+        raise FileNotFoundError(f"tdmd binary not found: {bin_path}")
+    if not DATA_PATH.exists():
+        raise FileNotFoundError(f"input data file not found: {DATA_PATH}")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dump_path = Path(tmpdir) / "forces.dump"
+        cmd = [
+            str(bin_path),
+            "--data", str(DATA_PATH),
+            "--morse", MORSE_PARAMS,
+            "--nsteps", "0",
+            "--dump-forces", str(dump_path),
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"tdmd_standalone failed (rc={result.returncode})\n"
+                f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+            )
+        thermo = parse_first_thermo(result.stdout)
+        atoms = parse_lammps_dump(dump_path)
+    return thermo, atoms
+
+
+def max_rel_err(a: float, b: float) -> float:
+    denom = max(abs(a), abs(b), 1e-30)
+    return abs(a - b) / denom
+
+
+def select_thresh(section: dict, key_base: str, mode: str) -> float:
+    """Pick threshold_<mode> if present, else plain 'threshold'."""
+    mode_key = f"{key_base}_{mode}"
+    if mode_key in section:
+        return float(section[mode_key])
+    return float(section[key_base])
+
+
+def check_atom_forces(tdmd_atoms: dict, analytic: dict, tol: dict, mode: str) -> list[str]:
+    """Compare per-atom forces against analytic reference. Return list of failures."""
+    failures: list[str] = []
+    thresh = select_thresh(tol["forces"], "threshold", mode)
+
+    expected = {
+        1: tuple(analytic["step0"]["force_on_atom_1_eV_per_A"]),
+        2: tuple(analytic["step0"]["force_on_atom_2_eV_per_A"]),
+    }
+    for aid, fexp in expected.items():
+        if aid not in tdmd_atoms:
+            failures.append(f"atom {aid} missing from TDMD dump")
+            continue
+        fobs = tdmd_atoms[aid]["force"]
+        for comp, (e, o) in enumerate(zip(fexp, fobs)):
+            # For components where the analytic expectation is zero, compare absolute;
+            # for nonzero, compare relative.
+            if abs(e) < 1e-12:
+                if abs(o) > thresh:
+                    failures.append(
+                        f"atom {aid} F[{comp}]: expected 0, got {o:+.6e} "
+                        f"(abs > {thresh:.1e})"
+                    )
+            else:
+                rel = max_rel_err(o, e)
+                if rel > thresh:
+                    failures.append(
+                        f"atom {aid} F[{comp}]: expected {e:+.6e}, got {o:+.6e} "
+                        f"(rel {rel:.3e} > {thresh:.1e})"
+                    )
+    return failures
+
+
+def check_energy(tdmd_thermo: dict, analytic: dict, tol: dict, mode: str) -> list[str]:
+    failures: list[str] = []
+    thresh = select_thresh(tol["energy"], "threshold", mode)
+    expected = float(analytic["step0"]["U_eV"])
+    observed = tdmd_thermo["pe"]
+    err = abs(observed - expected)
+    if err > thresh:
+        failures.append(
+            f"PE: expected {expected:+.8f}, got {observed:+.8f} "
+            f"(abs {err:.3e} > {thresh:.1e})"
+        )
+    return failures
+
+
+def resolve_binary(explicit: str | None, mode: str) -> Path:
+    if explicit:
+        return Path(explicit)
+    env = os.environ.get("TDMD_BIN")
+    if env:
+        return Path(env)
+    return DEFAULT_BIN_MIXED if mode == "mixed" else DEFAULT_BIN_FP64
 
 
 def main() -> int:
-    tol = load_tolerances()
-    analytic = load_analytic()
-
-    # Sanity-check the analytic reference itself
-    pot = analytic["potential"]
-    U, F = compute_morse(
-        analytic["step0"]["r_A"], pot["D0_eV"], pot["alpha_inv_A"], pot["r0_A"]
+    env_mode = os.environ.get("TDMD_MODE", "mixed")
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--tdmd-bin", help="Path to tdmd_standalone binary")
+    ap.add_argument(
+        "--mode",
+        choices=["mixed", "fp64"],
+        default=env_mode,
+        help="Precision mode — picks threshold_<mode> from tolerance.toml "
+             "(default: $TDMD_MODE or 'mixed')",
     )
+    args = ap.parse_args()
+    if args.mode not in ("mixed", "fp64"):
+        print(f"ERROR: invalid mode '{args.mode}'")
+        return 2
 
+    try:
+        tol = load_tolerances()
+        analytic = load_analytic()
+    except Exception as e:
+        print(f"ERROR loading references: {e}")
+        return 2
+
+    bin_path = resolve_binary(args.tdmd_bin, args.mode)
     print(f"== two-atoms-morse VerifyLab check ==")
-    print(f"Analytic U = {U:+.6f} eV   (committed: {analytic['step0']['U_eV']:+.6f})")
-    print(f"Analytic F = {F:+.6f} eV/A (committed: {analytic['step0']['F_eV_per_A']:+.6f})")
+    print(f"mode       : {args.mode}")
+    print(f"binary     : {bin_path}")
 
-    # Self-consistency of the committed reference
-    if abs(U - analytic["step0"]["U_eV"]) > 1e-4:
-        print("FAIL: committed analytic U disagrees with on-the-fly computation")
+    try:
+        thermo, atoms = run_tdmd(bin_path)
+    except Exception as e:
+        print(f"ERROR running TDMD: {e}")
+        return 2
+
+    expected_pe = float(analytic["step0"]["U_eV"])
+    expected_f1 = analytic["step0"]["force_on_atom_1_eV_per_A"][0]
+    print(f"TDMD step-0 PE = {thermo['pe']:+.14f} eV  (analytic: {expected_pe:+.14f})")
+    print(f"  atom 1 Fx    = {atoms[1]['force'][0]:+.14f} eV/A  (analytic: {expected_f1:+.14f})")
+    print(f"  atom 2 Fx    = {atoms[2]['force'][0]:+.14f} eV/A  (analytic: {-expected_f1:+.14f})")
+
+    failures: list[str] = []
+    failures += check_atom_forces(atoms, analytic, tol, args.mode)
+    failures += check_energy(thermo, analytic, tol, args.mode)
+
+    if failures:
+        print("\nFAIL:")
+        for f in failures:
+            print(f"  - {f}")
         return 1
-    if abs(F - analytic["step0"]["F_eV_per_A"]) > 1e-4:
-        print("FAIL: committed analytic F disagrees with on-the-fly computation")
-        return 1
-    print("PASS: committed analytic reference is self-consistent.")
 
-    # Run TDMD and compare — STUB until M1
-    tdmd_out = run_tdmd_and_collect()
-    if tdmd_out is None:
-        print("SKIP: TDMD invocation not implemented yet (M1 TODO).")
-        return 0
-
-    # M1 will fill in: compare tdmd_out vs analytic vs lammps log,
-    # using tolerances from `tol`.
-    print("PASS: TDMD vs analytic vs LAMMPS — within tolerances.")
+    print("\nPASS: TDMD step-0 forces and energy match analytic Morse reference.")
     return 0
 
 

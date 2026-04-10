@@ -14,9 +14,11 @@
   ],
   "step0": {
     "r_A": 2.5,
-    "U_eV": -0.36080,
-    "F_eV_per_A": -0.37386,
-    "force_on_atom_1_eV_per_A": [-0.37386, 0.0, 0.0],
-    "force_on_atom_2_eV_per_A": [0.37386, 0.0, 0.0]
+    "_comment_U": "U(r) = D0*(exp(-2a(r-r0)) - 2*exp(-a(r-r0))) evaluated at r=2.5, D0=0.5, a=1.5, r0=2.0",
+    "U_eV": -0.36080147266679978,
+    "_comment_F": "F_radial = -dU/dr < 0 at r>r0 (attractive). Atom 1 at x=0 is pulled toward atom 2 (+x direction). Atom 2 at x=2.5 is pulled toward atom 1 (-x direction).",
+    "F_radial_eV_per_A": -0.3738545888888773,
+    "force_on_atom_1_eV_per_A": [0.3738545888888773, 0.0, 0.0],
+    "force_on_atom_2_eV_per_A": [-0.3738545888888773, 0.0, 0.0]
   }
 }
