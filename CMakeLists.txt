@@ -16,6 +16,7 @@ set(TDMD_PRECISION "mixed" CACHE STRING "Precision mode: mixed (LAMMPS-style) or
 set_property(CACHE TDMD_PRECISION PROPERTY STRINGS mixed fp64)
 option(TDMD_BUILD_BENCHMARKS "Build benchmark tools"  OFF)
 option(TDMD_DETERMINISTIC "Force deterministic mode"   OFF)
+option(TDMD_DETERMINISTIC_REDUCE "Use ID-ordered reductions for bit-reproducibility (ADR 0010)" OFF)
 
 # Backward compat: -DTDMD_FP64=ON → TDMD_PRECISION=fp64
 if(DEFINED TDMD_FP64 AND TDMD_FP64)
@@ -74,6 +75,7 @@ message(STATUS "  CUDA:             ${TDMD_ENABLE_CUDA}")
 message(STATUS "  MPI:              ${TDMD_ENABLE_MPI}")
 message(STATUS "  Precision:        ${TDMD_PRECISION}")
 message(STATUS "  Deterministic:    ${TDMD_DETERMINISTIC}")
+message(STATUS "  Det. reductions:  ${TDMD_DETERMINISTIC_REDUCE}")
 message(STATUS "  Tests:            ${TDMD_BUILD_TESTS}")
 message(STATUS "  Benchmarks:       ${TDMD_BUILD_BENCHMARKS}")
 message(STATUS "====================================")

@@ -4,6 +4,7 @@
 
 #include <vector>
 
+#include "core/determinism.hpp"
 #include "core/device_buffer.cuh"
 #include "core/types.hpp"
 #include "domain/cell_list.hpp"
@@ -121,4 +122,17 @@ TEST(DeviceCellList, MatchesCPUCellList) {
     EXPECT_EQ(gpu_counts[static_cast<std::size_t>(c)], cpu_cl.count(c))
         << "cell count mismatch at cell " << c;
   }
+}
+
+// RD-3 / ADR 0010: when TDMD_DETERMINISTIC_REDUCE is ON, two back-to-back
+// builds on the same input must produce bit-identical cell_atoms arrays (the
+// scatter must be ID-ordered, not atomic-race-ordered). The default OFF build
+// allows ties to fall either way, so this test only enforces the contract in
+// the deterministic mode.
+TEST(DeviceCellListDeterminism, TwoBuildsBitIdentical) {
+  if constexpr (!kDeterministicReduce) {
+    GTEST_SKIP() << "enable -DTDMD_DETERMINISTIC_REDUCE=ON to run";
+  }
+  // TODO(rd-3b): populate once scatter_kernel uses ID-ordered placement.
+  GTEST_SKIP() << "pending RD-3b implementation";
 }

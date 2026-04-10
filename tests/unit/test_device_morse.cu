@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "support/precision_tolerance.hpp"
+#include "core/determinism.hpp"
 #include "core/device_buffer.cuh"
 #include "core/device_system_state.cuh"
 #include "core/types.hpp"
@@ -88,4 +89,18 @@ TEST(DeviceMorse, MatchesCPUForces256Atoms) {
   accum_t energy_diff = std::abs(gpu_energy - static_cast<accum_t>(cpu_energy));
   EXPECT_LT(energy_diff, kEnergyRelativeTolerance * std::abs(gpu_energy) + 1e-12)
       << "Energy difference: GPU=" << gpu_energy << " CPU=" << cpu_energy;
+}
+
+// RD-3 / ADR 0010: when TDMD_DETERMINISTIC_REDUCE is ON, two back-to-back
+// Morse compute() invocations on identical input must return bit-identical
+// scalar energies. atomicAdd on float/double is non-associative, so in the
+// default build this is not guaranteed; deterministic mode replaces the
+// atomic reduction with an ID-ordered per-atom buffer + segmented sum.
+TEST(DeviceMorseDeterminism, EnergyBitIdentical) {
+  if constexpr (!kDeterministicReduce) {
+    GTEST_SKIP() << "enable -DTDMD_DETERMINISTIC_REDUCE=ON to run";
+  }
+  // TODO(rd-3c): populate once per-atom energy buffer + ordered reduction
+  // land in device_morse.cu.
+  GTEST_SKIP() << "pending RD-3c implementation";
 }
