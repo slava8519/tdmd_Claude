@@ -38,6 +38,33 @@ Find issues before they hit `main`. Be specific, actionable, and kind.
 - Tests that don't actually test (e.g., passing because they catch the wrong condition).
 - Doc that wasn't updated.
 - Magic numbers without a constant or comment.
+- Kernel launches without an explicit stream in the inner loop (default-stream trap — silently serializes).
+- Reduction accumulators declared as `real` instead of `accum_t`.
+
+## Review by grep, not by report
+
+For any PR that touches **precision, storage types, or DeviceBuffer
+element types**: do not trust the commit message or the summary. Open a
+terminal on the branch and run the grep yourself:
+
+```
+grep -rn '\bVec3\b' src/
+grep -rn 'DeviceBuffer<' src/
+```
+
+Compare the output against the ADR or design doc the PR claims to
+implement. If the code and the document disagree, the PR is **not
+approved** regardless of how convincing the summary reads. The canonical
+failure mode is a PR that says "migrate to PositionVec" but still has
+`DeviceBuffer<Vec3>` in several files — correct-looking, tests green,
+and silently broken in mixed mode. See
+`docs/04-development/lessons-learned.md` § "Vec3 storage gap".
+
+For any PR that claims to follow a LAMMPS-parity pattern (ADR 0008):
+verify there is either a quoted `lib/gpu/lal_*.cu` reference in the
+commit message, or a design note that records the LAMMPS reading.
+"This is what LAMMPS does" without a file + line reference is not
+approved.
 
 ## Your no-go list
 
