@@ -303,6 +303,77 @@ it from the opposite direction: **tests that don't exist lie the
 loudest.** Every case added here was motivated by the observation
 that a specific failure mode had no regression gate.
 
+### Session RD-3 — deterministic reduction mode implementation (2026-04-10)
+
+Session VL-EXT shipped ADR 0010 ("Reduction Determinism Contract")
+as a spec; this follow-on session implemented it. Four sub-commits,
+each independently buildable:
+
+| sub-session | commit   | scope |
+|-------------|----------|-------|
+| RD-3a       | `89a4d56` | CMake flag `TDMD_DETERMINISTIC_REDUCE`, `src/core/determinism.hpp` with `kDeterministicReduce` constexpr, skipped stub tests wired. Three build dirs (`build-mixed`, `build-fp64`, `build-det`) all compile clean. |
+| RD-3b       | `f27a1ca` | R2 fix — `device_cell_list.cu` scatter under deterministic mode does a host-side sequential placement (H2D atom_cells → linear scan → D2H cell_atoms) instead of the `atomicAdd(&cell_placed[...])` race. Canonical ordering: within each cell, atoms appear in ascending atom-ID order. Default path untouched. `DeviceCellListDeterminism.TwoBuildsBitIdentical` activated. |
+| RD-3c       | `4397a33` | R3/R4/R5/R6 fix — float/double `atomicAdd` on `d_energy` in Morse, Morse-zone, and both EAM kernels replaced under deterministic mode by a per-atom `accum_t` scratch buffer + single-thread sequential-sum kernel. One copy of `sum_per_atom_kernel` per TU (anonymous namespace). EAM's 3-pass flow sums after embedding (R5) and after forces (R6), zeroing the scratch between them. `DeviceMorseDeterminism.EnergyBitIdentical` and `DeviceEamDeterminism.EnergyBitIdentical` added — both `memcmp` the raw `accum_t` bytes of `d_energy` so a single-ULP drift across three back-to-back runs fails the test. |
+| RD-3d       | (this commit) | Regression + perf smoke. |
+
+**RD-3d results.** All three build modes green on full test suites:
+
+| build       | cuda tests            | unit tests |
+|-------------|-----------------------|------------|
+| build-mixed | 26/30 pass, 4 skipped | 52/52      |
+| build-fp64  | 27/30 pass, 3 skipped | 52/52      |
+| build-det   | 29/30 pass, 1 skipped | 52/52      |
+
+The 3 determinism tests skip in default builds and run in `build-det`.
+The only remaining skip in `build-det` is the pre-existing
+`PipelineScheduler.DeterministicMatchesM3`, unrelated to this arc.
+
+**VerifyLab fast suite** run against `build-det/tdmd_standalone`:
+3/3 PASS (`two-atoms-morse`, `run0-force-match`, `cross-precision-ab`).
+The deterministic reduction path produces physically correct answers
+to the same tolerance as the default path — the reordering does not
+introduce systematic bias, only removes scheduling variance.
+
+**Perf smoke — 500 steps, 4000-atom Cu EAM, RTX 5080:**
+
+| build       | wall clock | overhead vs default |
+|-------------|------------|---------------------|
+| build-mixed | 4.68 s     | — (baseline)        |
+| build-det   | 4.78 s avg (3 runs: 4.76/4.80/4.78) | +2.1% |
+
+Sub-3% overhead on this configuration. The sequential per-atom sum
+(~N adds on one thread) is a small fraction of force-kernel time for
+N=4000; the cell-list H2D/D2H round trip runs ~every 10 steps and
+costs a few ms per rebuild. At much larger N the sequential reduction
+starts to dominate — if/when that matters, a future commit can swap
+in a bit-reproducible deterministic parallel tree, but for now
+"correctness now, perf later" is the right call per ADR 0010 §6.
+Default build is untouched, so production users pay zero.
+
+**Observation on the ADR 0010 premise.** On the 4000-atom FCC Cu
+input, `build-mixed` also prints bit-identical thermo across 4 runs
+at 14-decimal precision. This does not contradict ADR 0010 — it
+reflects that for this *particular* input + this *particular* GPU,
+warp scheduling happens to serialize the atomicAdds consistently
+across runs. ADR 0010's contract is that default is *allowed* to be
+non-deterministic and deterministic mode *must* be; the unit tests
+enforce the bit-identity guarantee at the `accum_t` level, where
+any future divergence (different input, different GPU, future CUDA
+version) would be caught.
+
+**Closes:** RD-3 (was deferred from session VL-EXT as "major core
+engine work, ADR 0010 delivers the contract, implementation is a
+separate arc"). ADR 0010 is now implemented end-to-end.
+
+**Still deferred:**
+
+| item   | reason |
+|--------|--------|
+| RD-4   | CMake preset + CI slow-suite job for `build-deterministic` — needs a CI slot and a decision on whether to run the det suite on every PR or nightly |
+| RD-5   | VL-13 sum-order sensitivity + VL-16 fault injection — were blocked on `build-deterministic` existing, now can be written, but sit behind RD-4 in priority because they need CI wiring to be useful |
+| VL-6/7/8 LAMMPS A/B cases | unchanged: still need LAMMPS in CI image |
+| VL-12  | still blocked: TDMD has no `velocity create` CLI flag |
+
 ### Session VL closed
 
 The 5-session VerifyLab expansion is complete. TDMD now has four
