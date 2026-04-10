@@ -3,6 +3,7 @@
 
 #include "device_morse_zone.cuh"
 
+#include "../core/determinism.hpp"
 #include "../core/device_buffer.cuh"
 #include "../core/device_math.cuh"
 #include "../core/error.hpp"
@@ -11,13 +12,28 @@ namespace tdmd::potentials {
 
 namespace {
 
+/// Single-thread ID-ordered reduction helper (see device_morse.cu for the
+/// extended rationale — repeated here because anonymous-namespace kernels
+/// cannot cross translation units).
+__global__ void sum_per_atom_zone_kernel(
+    const accum_t* __restrict__ d_e_per_atom, i32 natoms,
+    accum_t* __restrict__ d_energy) {
+  if (threadIdx.x != 0 || blockIdx.x != 0) return;
+  accum_t s = *d_energy;
+  for (i32 i = 0; i < natoms; ++i) {
+    s += d_e_per_atom[i];
+  }
+  *d_energy = s;
+}
+
 __global__ void morse_force_zone_kernel(
     const PositionVec* __restrict__ positions,
     ForceVec* __restrict__ forces, const i32* __restrict__ neighbors,
     const i32* __restrict__ offsets, const i32* __restrict__ counts,
     i32 first_atom, i32 atom_count, Vec3D box_lo, Vec3D box_size, bool pbc_x,
     bool pbc_y, bool pbc_z, MorseParams params,
-    accum_t* __restrict__ d_energy) {
+    accum_t* __restrict__ d_energy,
+    accum_t* __restrict__ d_e_per_atom) {
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= atom_count) return;
 
@@ -87,8 +103,15 @@ __global__ void morse_force_zone_kernel(
   forces[i].y += fy;
   forces[i].z += fz;
 
-  if (d_energy) {
-    atomicAdd(d_energy, static_cast<accum_t>(pe));
+  // R4 reduction site. See device_morse.cu R3 comment for rationale.
+  if constexpr (kDeterministicReduce) {
+    if (d_e_per_atom) {
+      d_e_per_atom[tid] = static_cast<accum_t>(pe);
+    }
+  } else {
+    if (d_energy) {
+      atomicAdd(d_energy, static_cast<accum_t>(pe));
+    }
   }
 }
 
@@ -106,11 +129,29 @@ void compute_morse_gpu_zone(const PositionVec* d_positions,
   constexpr int kBlock = 256;
   int grid = (atom_count + kBlock - 1) / kBlock;
 
+  DeviceBuffer<accum_t> d_e_per_atom;
+  accum_t* d_e_per_atom_ptr = nullptr;
+  if constexpr (kDeterministicReduce) {
+    if (d_energy) {
+      d_e_per_atom.resize(static_cast<std::size_t>(atom_count));
+      d_e_per_atom.zero();
+      d_e_per_atom_ptr = d_e_per_atom.data();
+    }
+  }
+
   morse_force_zone_kernel<<<grid, kBlock, 0, stream>>>(
       d_positions, d_forces, d_neighbors, d_offsets, d_counts, first_atom,
       atom_count, box.lo, box_size, box.periodic[0], box.periodic[1],
-      box.periodic[2], params, d_energy);
+      box.periodic[2], params, d_energy, d_e_per_atom_ptr);
   TDMD_CUDA_CHECK(cudaGetLastError());
+
+  if constexpr (kDeterministicReduce) {
+    if (d_energy) {
+      sum_per_atom_zone_kernel<<<1, 1, 0, stream>>>(d_e_per_atom_ptr,
+                                                     atom_count, d_energy);
+      TDMD_CUDA_CHECK(cudaGetLastError());
+    }
+  }
 }
 
 }  // namespace tdmd::potentials

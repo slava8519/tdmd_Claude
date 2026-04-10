@@ -5,11 +5,30 @@
 
 #include <vector>
 
+#include "../core/determinism.hpp"
 #include "../core/device_buffer.cuh"
 #include "../core/device_math.cuh"
 #include "../core/error.hpp"
 
 namespace tdmd::potentials {
+
+namespace {
+
+/// Single-thread ID-ordered reduction helper. One copy per .cu because the
+/// anonymous namespace confines it to this TU (see device_morse.cu for the
+/// full rationale behind the sequential-on-device strategy).
+__global__ void eam_sum_per_atom_kernel(
+    const accum_t* __restrict__ d_e_per_atom, i32 natoms,
+    accum_t* __restrict__ d_energy) {
+  if (threadIdx.x != 0 || blockIdx.x != 0) return;
+  accum_t s = *d_energy;
+  for (i32 i = 0; i < natoms; ++i) {
+    s += d_e_per_atom[i];
+  }
+  *d_energy = s;
+}
+
+}  // namespace
 
 // ---- Device-side spline evaluation ----
 
@@ -119,7 +138,8 @@ __global__ void eam_embedding_kernel(
     const i32* __restrict__ types, i32 natoms,
     const DeviceSpline* __restrict__ embedding_meta,
     const real* __restrict__ coeff, const accum_t* __restrict__ rho,
-    real* __restrict__ fp, accum_t* __restrict__ d_energy) {
+    real* __restrict__ fp, accum_t* __restrict__ d_energy,
+    accum_t* __restrict__ d_e_per_atom) {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i >= natoms) return;
 
@@ -127,9 +147,17 @@ __global__ void eam_embedding_kernel(
   real rho_i = static_cast<real>(rho[i]);
   fp[i] = spline_eval_deriv(embedding_meta[ti], coeff, rho_i);
 
-  if (d_energy) {
-    real e = spline_eval(embedding_meta[ti], coeff, rho_i);
-    atomicAdd(d_energy, static_cast<accum_t>(e));
+  // R5 reduction site: per-atom embedding energy F(rho_i).
+  if constexpr (kDeterministicReduce) {
+    if (d_e_per_atom) {
+      real e = spline_eval(embedding_meta[ti], coeff, rho_i);
+      d_e_per_atom[i] = static_cast<accum_t>(e);
+    }
+  } else {
+    if (d_energy) {
+      real e = spline_eval(embedding_meta[ti], coeff, rho_i);
+      atomicAdd(d_energy, static_cast<accum_t>(e));
+    }
   }
 }
 
@@ -154,7 +182,8 @@ __global__ void eam_force_kernel(
     const DeviceSpline* __restrict__ density_meta,
     const DeviceSpline* __restrict__ phi_meta,
     const real* __restrict__ coeff, const real* __restrict__ fp,
-    accum_t* __restrict__ d_energy) {
+    accum_t* __restrict__ d_energy,
+    accum_t* __restrict__ d_e_per_atom) {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i >= natoms) return;
 
@@ -233,8 +262,15 @@ __global__ void eam_force_kernel(
   forces[i].y += fy;
   forces[i].z += fz;
 
-  if (d_energy) {
-    atomicAdd(d_energy, static_cast<accum_t>(pe));
+  // R6 reduction site: per-atom pair energy half-sum.
+  if constexpr (kDeterministicReduce) {
+    if (d_e_per_atom) {
+      d_e_per_atom[i] = static_cast<accum_t>(pe);
+    }
+  } else {
+    if (d_energy) {
+      atomicAdd(d_energy, static_cast<accum_t>(pe));
+    }
   }
 }
 
@@ -318,6 +354,19 @@ void DeviceEam::compute(const PositionVec* d_positions, ForceVec* d_forces,
   constexpr int kBlock = 256;
   int grid = (natoms + kBlock - 1) / kBlock;
 
+  // Per-atom energy scratch used only in deterministic mode. Reused between
+  // the embedding and force passes because neither needs its contents after
+  // the post-pass sum_per_atom_kernel is done.
+  DeviceBuffer<accum_t> d_e_per_atom;
+  accum_t* d_e_per_atom_ptr = nullptr;
+  if constexpr (kDeterministicReduce) {
+    if (d_energy) {
+      d_e_per_atom.resize(un);
+      d_e_per_atom.zero();
+      d_e_per_atom_ptr = d_e_per_atom.data();
+    }
+  }
+
   // Pass 1: density gather.
   d_rho_.zero();
   eam_density_kernel<<<grid, kBlock>>>(
@@ -326,19 +375,38 @@ void DeviceEam::compute(const PositionVec* d_positions, ForceVec* d_forces,
       d_density_meta_.data(), d_coeff_.data(), d_rho_.data());
   TDMD_CUDA_CHECK(cudaGetLastError());
 
-  // Pass 2: embedding.
+  // Pass 2: embedding (writes R5 energy contribution per atom).
   eam_embedding_kernel<<<grid, kBlock>>>(
       d_types, natoms, d_embedding_meta_.data(), d_coeff_.data(),
-      d_rho_.data(), d_fp_.data(), d_energy);
+      d_rho_.data(), d_fp_.data(), d_energy, d_e_per_atom_ptr);
   TDMD_CUDA_CHECK(cudaGetLastError());
 
-  // Pass 3: forces.
+  if constexpr (kDeterministicReduce) {
+    if (d_energy) {
+      eam_sum_per_atom_kernel<<<1, 1>>>(d_e_per_atom_ptr, natoms, d_energy);
+      TDMD_CUDA_CHECK(cudaGetLastError());
+      // Scratch is about to be reused by the force kernel — zero it so any
+      // atoms skipped by the force kernel contribute 0, not stale embedding
+      // values. (Currently every thread writes, but zeroing is cheap and
+      // defends against a future early-exit path.)
+      d_e_per_atom.zero();
+    }
+  }
+
+  // Pass 3: forces (writes R6 energy contribution per atom).
   eam_force_kernel<<<grid, kBlock>>>(
       d_positions, d_forces, d_types, d_neighbors, d_offsets, d_counts, natoms,
       ntypes_, box.lo, box_size, box.periodic[0], box.periodic[1],
       box.periodic[2], rc_sq, d_density_meta_.data(), d_phi_meta_.data(),
-      d_coeff_.data(), d_fp_.data(), d_energy);
+      d_coeff_.data(), d_fp_.data(), d_energy, d_e_per_atom_ptr);
   TDMD_CUDA_CHECK(cudaGetLastError());
+
+  if constexpr (kDeterministicReduce) {
+    if (d_energy) {
+      eam_sum_per_atom_kernel<<<1, 1>>>(d_e_per_atom_ptr, natoms, d_energy);
+      TDMD_CUDA_CHECK(cudaGetLastError());
+    }
+  }
 }
 
 }  // namespace tdmd::potentials

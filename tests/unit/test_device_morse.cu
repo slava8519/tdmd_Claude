@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -95,12 +96,53 @@ TEST(DeviceMorse, MatchesCPUForces256Atoms) {
 // Morse compute() invocations on identical input must return bit-identical
 // scalar energies. atomicAdd on float/double is non-associative, so in the
 // default build this is not guaranteed; deterministic mode replaces the
-// atomic reduction with an ID-ordered per-atom buffer + segmented sum.
+// atomic reduction with an ID-ordered per-atom buffer + sequential sum.
 TEST(DeviceMorseDeterminism, EnergyBitIdentical) {
   if constexpr (!kDeterministicReduce) {
     GTEST_SKIP() << "enable -DTDMD_DETERMINISTIC_REDUCE=ON to run";
   }
-  // TODO(rd-3c): populate once per-atom energy buffer + ordered reduction
-  // land in device_morse.cu.
-  GTEST_SKIP() << "pending RD-3c implementation";
+
+  std::string data_dir = TDMD_TEST_DATA_DIR;
+  SystemState state = io::read_lammps_data(data_dir + "/cu_fcc_256.data");
+
+  real D = real{0.3429};
+  real alpha = real{1.3588};
+  real r0 = real{2.866};
+  real rc = real{6.0};
+  real skin = real{0.5};
+
+  auto n = static_cast<std::size_t>(state.natoms);
+  DeviceBuffer<PositionVec> d_pos(n);
+  DeviceBuffer<ForceVec> d_forces(n);
+  d_pos.copy_from_host(state.positions.data(), n);
+
+  neighbors::DeviceNeighborList gpu_nlist;
+  gpu_nlist.build(d_pos.data(), state.natoms, state.box, rc, skin);
+
+  potentials::MorseParams params{D, alpha, r0, rc, rc * rc};
+  DeviceBuffer<accum_t> d_energy(1);
+
+  auto run_once = [&]() {
+    d_forces.zero();
+    d_energy.zero();
+    potentials::compute_morse_gpu(
+        d_pos.data(), d_forces.data(), gpu_nlist.d_neighbors(),
+        gpu_nlist.d_offsets(), gpu_nlist.d_counts(),
+        static_cast<i32>(state.natoms), state.box, params, d_energy.data());
+    TDMD_CUDA_CHECK(cudaDeviceSynchronize());
+    accum_t e = 0;
+    d_energy.copy_to_host(&e, 1);
+    return e;
+  };
+
+  accum_t e1 = run_once();
+  accum_t e2 = run_once();
+  accum_t e3 = run_once();
+
+  // Bit-identical, not just "close". memcmp the raw bytes so a single-bit
+  // drift in an ULP still fails the test.
+  EXPECT_EQ(std::memcmp(&e1, &e2, sizeof(accum_t)), 0)
+      << "Morse energy changed between runs: " << e1 << " vs " << e2;
+  EXPECT_EQ(std::memcmp(&e1, &e3, sizeof(accum_t)), 0)
+      << "Morse energy changed between runs: " << e1 << " vs " << e3;
 }

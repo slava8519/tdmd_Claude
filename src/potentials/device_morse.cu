@@ -3,6 +3,7 @@
 
 #include "device_morse.cuh"
 
+#include "../core/determinism.hpp"
 #include "../core/device_buffer.cuh"
 #include "../core/device_math.cuh"
 #include "../core/error.hpp"
@@ -11,6 +12,23 @@ namespace tdmd::potentials {
 
 namespace {
 
+/// Single-thread ID-ordered reduction: sum d_e_per_atom[0..natoms) into *d_energy.
+/// Used only when TDMD_DETERMINISTIC_REDUCE=ON. Deliberately not parallelized —
+/// the goal is a bit-reproducible result that depends only on the input, and
+/// any parallel (tree) reduction inside a kernel would reintroduce order
+/// nondeterminism the moment two blocks tie on scheduling. One thread,
+/// sequential accum_t sum, tiny next to the force kernel itself.
+__global__ void sum_per_atom_kernel(const accum_t* __restrict__ d_e_per_atom,
+                                    i32 natoms,
+                                    accum_t* __restrict__ d_energy) {
+  if (threadIdx.x != 0 || blockIdx.x != 0) return;
+  accum_t s = *d_energy;
+  for (i32 i = 0; i < natoms; ++i) {
+    s += d_e_per_atom[i];
+  }
+  *d_energy = s;
+}
+
 __global__ void morse_force_kernel(const PositionVec* __restrict__ positions,
                                    ForceVec* __restrict__ forces,
                                    const i32* __restrict__ neighbors,
@@ -18,7 +36,8 @@ __global__ void morse_force_kernel(const PositionVec* __restrict__ positions,
                                    const i32* __restrict__ counts,
                                    i32 natoms, Vec3D box_lo, Vec3D box_size,
                                    bool pbc_x, bool pbc_y, bool pbc_z,
-                                   MorseParams params, accum_t* __restrict__ d_energy) {
+                                   MorseParams params, accum_t* __restrict__ d_energy,
+                                   accum_t* __restrict__ d_e_per_atom) {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i >= natoms) return;
 
@@ -92,8 +111,18 @@ __global__ void morse_force_kernel(const PositionVec* __restrict__ positions,
   forces[i].y += fy;
   forces[i].z += fz;
 
-  if (d_energy) {
-    atomicAdd(d_energy, static_cast<accum_t>(pe));
+  // R3 reduction site. Default path: float/double atomicAdd, fast but
+  // warp-scheduling-nondeterministic. Deterministic path (ADR 0010): drop
+  // the per-atom contribution into a dense buffer that the host will sum
+  // in strict ID order after the kernel finishes.
+  if constexpr (kDeterministicReduce) {
+    if (d_e_per_atom) {
+      d_e_per_atom[i] = static_cast<accum_t>(pe);
+    }
+  } else {
+    if (d_energy) {
+      atomicAdd(d_energy, static_cast<accum_t>(pe));
+    }
   }
 }
 
@@ -110,11 +139,29 @@ void compute_morse_gpu(const PositionVec* d_positions, ForceVec* d_forces,
   constexpr int kBlock = 256;
   int grid = (natoms + kBlock - 1) / kBlock;
 
+  DeviceBuffer<accum_t> d_e_per_atom;
+  accum_t* d_e_per_atom_ptr = nullptr;
+  if constexpr (kDeterministicReduce) {
+    if (d_energy) {
+      d_e_per_atom.resize(static_cast<std::size_t>(natoms));
+      d_e_per_atom.zero();
+      d_e_per_atom_ptr = d_e_per_atom.data();
+    }
+  }
+
   morse_force_kernel<<<grid, kBlock, 0, stream>>>(
       d_positions, d_forces, d_neighbors, d_offsets, d_counts, natoms, box.lo,
       box_size, box.periodic[0], box.periodic[1], box.periodic[2], params,
-      d_energy);
+      d_energy, d_e_per_atom_ptr);
   TDMD_CUDA_CHECK(cudaGetLastError());
+
+  if constexpr (kDeterministicReduce) {
+    if (d_energy) {
+      sum_per_atom_kernel<<<1, 1, 0, stream>>>(d_e_per_atom_ptr, natoms,
+                                                d_energy);
+      TDMD_CUDA_CHECK(cudaGetLastError());
+    }
+  }
 }
 
 }  // namespace tdmd::potentials
