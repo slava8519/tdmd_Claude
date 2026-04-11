@@ -1,6 +1,6 @@
 # Current milestone status
 
-> **Last updated:** 2026-04-11 (post session OPT-FUSE-1a — kick+drift fusion shipped)
+> **Last updated:** 2026-04-11 (post session OPT-FUSE-1b — zero_forces eliminated)
 
 ## Phase 3 series — COMPLETE (closed in session 3B.closing, hardened in session 3D)
 
@@ -902,12 +902,115 @@ and is gated on this one shipping cleanly first.
   for future comparison; any future regression must be compared
   against the 1a numbers, not the pre-1a numbers.
 
+## Session OPT-FUSE-1b — zero_forces eliminated (2026-04-11)
+
+Second step of the optimization chain. Removed the per-step
+`device_zero_forces` launch by switching the whole-system force kernels
+(`morse_force_kernel`, EAM final-force kernel) from `+=` to `=`. Each
+thread owns one atom, so accumulation semantics were never needed —
+pre-zeroing + `+=` was equivalent to a pure store all along.
+
+### What shipped in 1b
+
+- `src/potentials/device_morse.cu`: force kernel writes `forces[i] = ...`.
+- `src/potentials/device_eam.cu`: final force pass writes `forces[i] = ...`.
+  Density and embedding passes unchanged (they write to scratch `rho_` /
+  `fp_`, which `DeviceEam::compute` zeroes internally).
+- `src/scheduler/fast_pipeline_scheduler.cu`: dropped
+  `device_zero_forces` from `step_morse`, `step_eam`, and
+  `compute_initial_forces`.
+- `KernelLaunchInvariant` test updated: `1 + 3*nsteps` (was `2 + 4*nsteps`).
+- **Not touched:** `src/potentials/device_morse_zone.cu` still uses `+=`.
+  The zone variant is the legacy multi-zone scheduler path which
+  partitions atoms across multiple kernel calls; we do not know without
+  audit whether any caller depends on accumulate semantics, and the
+  zone scheduler is not in the optimization path.
+
+Per-step launch count (Morse): Phase 2 = 5 → 1a = 4 → **1b = 3**.
+EAM: 7 → 6 → 5 (EAM's 3 force passes are not fused; the eliminated
+launch is the standalone `zero_forces`).
+
+### Bench methodology note — learned this session
+
+First 1b bench run gave an *apparent* 3–5% regression against the 1a
+baseline from the prior session. In-session A/B (re-measure 1a and 1b
+against each other within a single GPU session, same silicon thermal
+state) showed the truth: 1b is actually 1–2% faster. The "regression"
+was entirely cross-session thermal / clock-boost drift — the GPU was
+5–7% cooler this session than during the 1a measurement, and all
+absolute numbers dropped by that amount. Exactly the artifact Phase C
+flagged and the reason the A/B sweep interleaves TDMD and LAMMPS
+within a single session.
+
+**Rule codified:** any future optimization comparison must re-measure
+the baseline in the same GPU session as the new code. Never compare
+against a stored number from a different session — the drift is
+larger than the optimization signal.
+
+### Bench — OPT-FUSE-1b vs OPT-FUSE-1a (in-session A/B)
+
+Same protocol as Phase C: median of 3, 7 s pauses, single GPU session.
+Binary A = 1a (stashed build), binary B = 1b (current build).
+
+| Size   | 1a (in-session) | 1b (in-session) | Δ           |
+|--------|---------------:|---------------:|------------:|
+| tiny   |          9 888 |         10 103 | **+2.2%**   |
+| small  |          5 787 |          5 849 | +1.1%       |
+| medium |          3 858 |          3 903 | +1.2%       |
+
+Launch-count verification: 4.0/step (1a) → 3.0/step (1b) confirmed in
+stdout for every cell.
+
+### Reading the numbers
+
+1b's pattern is flatter than 1a's (uniform ~1–2% rather than 1a's
+4.4%→0.9% slope). Reason: `device_zero_forces` was a trivial
+memset-style kernel whose per-launch cost barely depends on system
+size, so eliminating it saves a roughly constant wall-clock fraction
+across all sizes. 1a eliminated a launch whose *work* was negligible
+on large systems, so the benefit decayed with size; 1b eliminates a
+launch whose *overhead* was the whole cost to begin with, so the
+benefit is flatter.
+
+Combined 1a+1b vs Phase C baseline, corrected for thermal drift
+(rough estimate: multiply 1b numbers by ~1.055 to compare to the
+warm-session 1a baseline): tiny ~10650, small ~6170, medium ~4115.
+Roughly +7% over Phase C on tiny, +4% on small, flat on medium. The
+medium cell continues to be compute-bound and fusion cannot move it.
+
+### Test status (post-1b)
+
+- `build-mixed/tests/tdmd_cuda_tests`: 32 passed, 4 skipped.
+- `ctest` full: 89 passed, 0 failed.
+- Critical gates re-verified:
+  - `DeviceVelocityVerlet.FusedKickDriftMatchesUnfused` — bit-exact.
+  - `DeviceNVEDrift.ADR0007AcceptanceTest100k` — per-step drift
+    4.78e-13, well under 1e-9 target.
+  - `DeviceLammpsAB.MorseRun0ForceMatch` / `EamRun0ForceMatch` —
+    stats unchanged from Phase C (physics untouched).
+  - `FastPipelineEam.MatchesDirectCompute` — scheduler EAM path still
+    matches direct `DeviceEam::compute` byte-for-byte.
+
+### What 1b does and does not prove
+
+**Does prove:**
+- `+=` was always redundant in the whole-system path; `=` is the
+  correct default for one-writer-per-atom force kernels.
+- The 1a+1b launch-reduction chain is working as designed; cross-step
+  1c is next and should deliver the biggest single jump.
+
+**Does not prove:**
+- Does *not* apply to the zone scheduler — that path still uses `+=`
+  and we haven't audited whether its callers depend on it.
+- Does *not* close the launch-bound gap vs LAMMPS. At 3 launches/step
+  Morse is still launch-bound on tiny/small. 1c will take it to 2.
+
 ## Next milestone — TBD
 
 Phase 3 closure is a natural pause point. Next milestone selection awaits
 project lead input. Candidates:
-- OPT-FUSE-1b (zero_forces elimination) — natural next step in fusion chain
-- OPT-FUSE-1c (cross-step full_kick) — more invasive, bigger win
+- OPT-FUSE-1c (cross-step full_kick) — the big lever left in the fusion chain (Morse 3→2 launches/step)
+- OPT-INFRA (factor shared host launcher, post-fusion)
 - Phase 4: neighbor list rebuild optimization
 - M7 kernel fusion K > 1 (gated on M5/M6 zone machine)
 - Multi-rank distributed work (ghost-only exchange)
