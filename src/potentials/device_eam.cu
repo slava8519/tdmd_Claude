@@ -258,9 +258,12 @@ __global__ void eam_force_kernel(
     fz += fpair * dz;
   }
 
-  forces[i].x += fx;
-  forces[i].y += fy;
-  forces[i].z += fz;
+  // OPT-FUSE-1b: store, not accumulate. This is the final pass of the EAM
+  // 3-pass; it is the only pass that touches forces[]. Density and
+  // embedding passes write to scratch (rho_, fp_). One writer per atom.
+  forces[i].x = fx;
+  forces[i].y = fy;
+  forces[i].z = fz;
 
   // R6 reduction site: per-atom pair energy half-sum.
   if constexpr (kDeterministicReduce) {

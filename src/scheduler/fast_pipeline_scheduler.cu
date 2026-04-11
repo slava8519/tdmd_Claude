@@ -107,24 +107,21 @@ void FastPipelineScheduler::step_morse() {
       d_masses_.data(), natoms_, cfg_.dt, box_, compute_stream_);
   ++stats_.kernel_launches;
 
-  // Phase 3: zero forces.
-  integrator::device_zero_forces(d_forces_.data(), natoms_, compute_stream_);
-  ++stats_.kernel_launches;
-
   // Neighbor list rebuild (amortized, every rebuild_every steps).
   // OPT-1: prefix sum now runs on the device via CUB; build() still performs
   // one 8-byte D2H for total_pairs + max_neighbors, so there is a single
   // tiny stream sync inside it — down from two N-sized round trips.
   maybe_rebuild_nlist();
 
-  // Phase 4: Morse force compute.
+  // Phase 3: Morse force compute. OPT-FUSE-1b: kernel writes forces with `=`,
+  // no pre-zero needed.
   potentials::compute_morse_gpu(d_pos_.data(), d_forces_.data(),
                                 nlist_.d_neighbors(), nlist_.d_offsets(),
                                 nlist_.d_counts(), natoms_, box_,
                                 morse_params_, nullptr, compute_stream_);
   ++stats_.kernel_launches;
 
-  // Phase 5: second half-kick.
+  // Phase 4: second half-kick.
   integrator::device_half_kick(d_vel_.data(), d_forces_.data(),
                                d_types_.data(), d_masses_.data(), natoms_,
                                cfg_.dt, compute_stream_);
@@ -140,15 +137,11 @@ void FastPipelineScheduler::step_eam() {
       d_masses_.data(), natoms_, cfg_.dt, box_, compute_stream_);
   ++stats_.kernel_launches;
 
-  // Phase 3: zero forces.
-  integrator::device_zero_forces(d_forces_.data(), natoms_, compute_stream_);
-  ++stats_.kernel_launches;
-
   maybe_rebuild_nlist();
 
-  // Phase 4: EAM 3-pass (density → embedding → force). All three passes
-  // queue on compute_stream_; scratch zeroes inside compute() also run
-  // on that stream (cudaMemsetAsync).
+  // Phase 3: EAM 3-pass (density → embedding → force). Final force pass
+  // writes with `=` (OPT-FUSE-1b), so no pre-zero. Density and embedding
+  // passes write to scratch (rho_, fp_) which compute() owns.
   eam_->compute(d_pos_.data(), d_forces_.data(), d_types_.data(),
                 nlist_.d_neighbors(), nlist_.d_offsets(), nlist_.d_counts(),
                 natoms_, box_, nullptr, compute_stream_);
@@ -171,10 +164,7 @@ void FastPipelineScheduler::compute_initial_forces() {
   ++stats_.rebuilds;
   steps_since_rebuild_ = 0;
 
-  // Zero forces and compute initial forces via the right potential.
-  integrator::device_zero_forces(d_forces_.data(), natoms_, compute_stream_);
-  ++stats_.kernel_launches;
-
+  // OPT-FUSE-1b: force kernels write with `=`, no pre-zero needed.
   switch (potential_kind_) {
     case PotentialKind::Morse:
       potentials::compute_morse_gpu(

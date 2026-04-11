@@ -107,9 +107,14 @@ __global__ void morse_force_kernel(const PositionVec* __restrict__ positions,
     }
   }
 
-  forces[i].x += fx;
-  forces[i].y += fy;
-  forces[i].z += fz;
+  // OPT-FUSE-1b: store, not accumulate. Each thread owns atom i; there is
+  // exactly one writer per atom. Callers do not need to pre-zero forces.
+  // Do NOT revert to += without also restoring device_zero_forces in the
+  // scheduler path — the zone kernel (device_morse_zone.cu) still uses +=
+  // because the zone scheduler partitions atoms across multiple calls.
+  forces[i].x = fx;
+  forces[i].y = fy;
+  forces[i].z = fz;
 
   // R3 reduction site. Default path: float/double atomicAdd, fast but
   // warp-scheduling-nondeterministic. Deterministic path (ADR 0010): drop

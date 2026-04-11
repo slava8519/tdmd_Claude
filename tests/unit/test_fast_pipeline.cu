@@ -180,10 +180,10 @@ TEST(FastPipelineScheduler, KernelLaunchInvariant) {
 
   auto stats = sched.stats();
 
-  // 2 initial (zero_forces + force) + 4 per step * nsteps.
-  // Per step (OPT-FUSE-1a): fused_kick_drift, zero, morse_force, kick2 = 4.
-  // Before fusion this was 5 (kick1 + drift + zero + force + kick2).
-  i64 expected = 2 + 4 * static_cast<i64>(nsteps);
+  // 1 initial (force only; no zero after OPT-FUSE-1b) + 3 per step * nsteps.
+  // Per step: fused_kick_drift, morse_force, kick2 = 3.
+  // History: Phase 2 = 5, OPT-FUSE-1a = 4, OPT-FUSE-1b = 3.
+  i64 expected = 1 + 3 * static_cast<i64>(nsteps);
   EXPECT_EQ(stats.kernel_launches, expected)
       << "Expected " << expected << " kernel launches for " << nsteps
       << " steps, got " << stats.kernel_launches;
