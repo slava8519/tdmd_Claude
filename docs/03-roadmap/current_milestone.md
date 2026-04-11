@@ -1,6 +1,6 @@
 # Current milestone status
 
-> **Last updated:** 2026-04-11 (post session FEAT-EAM Phase C — LAMMPS A/B closed)
+> **Last updated:** 2026-04-11 (post session OPT-FUSE-1a — kick+drift fusion shipped)
 
 ## Phase 3 series — COMPLETE (closed in session 3B.closing, hardened in session 3D)
 
@@ -786,12 +786,129 @@ exists (see `docs/04-development/ci-strategy.md`).
   This entry is a contract: no ML milestone can close without these 5
   cases green in both `build-mixed/` and `build-fp64/`.
 
+## Session OPT-FUSE-1a — kick+drift intra-step fusion (2026-04-11)
+
+First step of the post-Phase-C single-GPU optimization program. Phase C
+measurement showed TDMD is launch-bound on tiny/small (LAMMPS-GPU 2–3×
+faster at 256 and 4000 atoms) but beats LAMMPS by 26% on 32 000-atom
+Morse once the force kernel dominates. The obvious lever is cutting
+per-step kernel launches — that is exactly what fusion attacks.
+
+### Post-Phase-C optimization roadmap
+
+Three-stage fusion plan, each stage measurable and reversible:
+
+- **OPT-FUSE-1a** — fuse `half_kick` + `drift` into one kernel.
+  **Shipped this session.** Intra-step, no math-contract change, no
+  scheduler state-machine change. Per-step launches: Morse 5→4,
+  EAM 7→6.
+- **OPT-FUSE-1b** — eliminate `zero_forces` by making the force kernel
+  `=` instead of `+=`. Requires a one-potential-per-step invariant
+  (already true in the FastPipelineScheduler). Per-step: Morse 4→3,
+  EAM 6→5.
+- **OPT-FUSE-1c** — cross-step `kick2(N)` + `kick1(N+1)` → single
+  `full_kick` with dt. Requires `velocities_half_advanced_` state flag
+  on the scheduler and an init/finalize half-kick to preserve the
+  velocity-Verlet contract across `upload` / `download` boundaries.
+  Per-step: Morse 3→2, EAM 5→4.
+- **OPT-INFRA** — factor shared host-side launcher from `device_morse.cu`
+  / `device_eam.cu` into a LAMMPS-`lal_base_atomic`-style base. *Only
+  after* 1a/b/c land — doing it first would be premature abstraction.
+  Kernels stay separate: LAMMPS does the same split (`lal_morse.cu`
+  vs `lal_eam.cu`) because EAM is fundamentally many-body 3-pass and
+  cannot share a kernel with pairwise Morse.
+- **OPT-FUSE-MULTISTEP** (K>1) — TDMD-unique multi-step fusion inside
+  buffer zones. Parked: delivers only over communication latency,
+  requires M5/M6 zone state machine. Not in scope until distributed
+  work resumes.
+
+### What shipped in 1a
+
+- `device_fused_half_kick_drift` kernel (`src/integrator/device_velocity_verlet.cu`):
+  single per-atom pass, reads force + velocity, writes velocity,
+  drifts position, wraps PBC. All arithmetic in double (ADR 0007
+  unchanged). Register-resident velocity hand-off eliminates the HBM
+  round-trip between the old `half_kick` → `drift` pair.
+- Wired into `FastPipelineScheduler::step_morse` and `step_eam`.
+- `DeviceVelocityVerlet.FusedKickDriftMatchesUnfused` unit test —
+  compares fused vs unfused on real 256-atom FCC Morse state with
+  actual forces (not zeros), asserts **bit-exact** position and
+  velocity equivalence. Passes.
+- `FastPipelineScheduler.KernelLaunchInvariant` updated: expects
+  `2 + 4*nsteps` instead of `2 + 5*nsteps`.
+
+### Bench — OPT-FUSE-1a vs Phase C baseline
+
+`bench_pipeline_scheduler --scheduler fast_pipeline`, mixed preset,
+RTX 5080, median of 3 with 7 s pauses per CLAUDE.md §4. Phase C numbers
+from `docs/05-benchmarks/lammps-ab-results.md` Section A.
+
+| Potential | Size   | Phase C baseline | OPT-FUSE-1a | Δ          |
+|-----------|--------|-----------------:|------------:|-----------:|
+| morse     | tiny   |            9 955 |      10 396 | **+4.4%**  |
+| morse     | small  |            5 954 |       6 093 | +2.3%      |
+| morse     | medium |            4 077 |       4 114 | +0.9%      |
+| eam       | tiny   |            4 802 |       4 863 | +1.3%      |
+| eam       | small  |            3 288 |       3 332 | +1.3%      |
+| eam       | medium |            2 645 |       2 643 | −0.1%      |
+
+All launch counts verified via `bench_pipeline_scheduler` output:
+4.0/step for Morse, 6.0/step for EAM.
+
+### Reading the numbers
+
+The pattern is textbook launch-cost amortization. The biggest win is
+Morse tiny (+4.4%) because at 256 atoms every kernel launch is ~3 µs
+of host-side driver overhead and the per-step budget is ~95 µs — so
+saving one launch is ~3% of wall time, which matches. Medium Morse
+(+0.9%) is noise-floor because the force kernel takes ~230 µs and
+kick+drift were already < 2 µs combined; fusing an already-cheap
+pair gains nothing.
+
+EAM wins are uniformly smaller (+1.3% / +1.3% / −0.1%) because EAM's
+three force passes (density → embedding → force) dominate per-step
+cost much more heavily than Morse's single pass — the kick+drift
+fraction of total is smaller to begin with, so cutting it in half
+matters less. This is expected and consistent with the theory.
+
+**This is a small win, and that is the right size for 1a.** The
+aggressive optimization is 1c (cross-step full_kick fusion, 2
+launches/step for Morse), which requires touching the state machine
+and is gated on this one shipping cleanly first.
+
+### Test status (post-1a)
+
+- `build-mixed/tests/tdmd_cuda_tests`: 32 passed, 4 skipped
+  (`TDMD_DETERMINISTIC_REDUCE=OFF` cells, unchanged).
+- `ctest` full: 89 passed, 0 failed (same 4 deterministic-mode skips).
+- `DeviceLammpsAB.MorseRun0ForceMatch` and `EamRun0ForceMatch`
+  unchanged: max_abs = 5.36e-06 / 2.68e-06, rms = 4.10e-06 / 2.20e-06.
+  PE match unchanged. Physics untouched.
+
+### What 1a does and does not prove
+
+**Does prove:**
+- Fusion infrastructure (add fused kernel, wire into scheduler, assert
+  bit-equivalence, measure) is mechanically correct.
+- Launch-bound hypothesis from Phase C is real — tiny-cell Morse
+  responds to launch-count reduction as predicted.
+
+**Does not prove:**
+- Not a closed perf story. A 0.9% gain on 32k Morse is nothing to
+  report to LAMMPS. The medium cell is compute-bound and the path
+  to improving it is *not* launch reduction — it is force-kernel
+  tuning (EAM) or fundamentally different algorithm (K>1 or CSR).
+- Not a regression gate. These numbers supersede the Phase C baseline
+  for future comparison; any future regression must be compared
+  against the 1a numbers, not the pre-1a numbers.
+
 ## Next milestone — TBD
 
 Phase 3 closure is a natural pause point. Next milestone selection awaits
 project lead input. Candidates:
-- M7 kernel fusion K > 1 (TDMD-unique optimization)
+- OPT-FUSE-1b (zero_forces elimination) — natural next step in fusion chain
+- OPT-FUSE-1c (cross-step full_kick) — more invasive, bigger win
 - Phase 4: neighbor list rebuild optimization
-- ~~Session 3B.8: EAM migration~~ (done in EAM-1B)
+- M7 kernel fusion K > 1 (gated on M5/M6 zone machine)
 - Multi-rank distributed work (ghost-only exchange)
 - VerifyLab expansion
