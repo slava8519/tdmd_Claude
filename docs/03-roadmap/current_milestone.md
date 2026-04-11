@@ -1,6 +1,6 @@
 # Current milestone status
 
-> **Last updated:** 2026-04-11 (post session FEAT-EAM Phase A+B)
+> **Last updated:** 2026-04-11 (post session FEAT-EAM Phase C — LAMMPS A/B closed)
 
 ## Phase 3 series — COMPLETE (closed in session 3B.closing, hardened in session 3D)
 
@@ -642,6 +642,94 @@ the EAM/Morse column is the honest comparison.
 `ctest --preset fp64` → 88/88 passed. 85 baseline + 3 new EAM
 FastPipeline tests. Morse launch-invariant test still exact at
 5/step.
+
+### Session FEAT-EAM Phase C — LAMMPS A/B for Morse and EAM (2026-04-11)
+
+Closes the last open part of FEAT-EAM-Production-Pipeline. Phase A+B
+wired EAM through `FastPipelineScheduler` and delivered an enablement
+benchmark; Phase C answers the *other* half of "done": how do TDMD
+and stock LAMMPS compare on the same problem? Full report:
+[`docs/05-benchmarks/lammps-ab-results.md`](../05-benchmarks/lammps-ab-results.md).
+
+**Protocol.** 6 cells (Morse/EAM × tiny/small/medium) × 3 runs × 2
+engines, all 36 runs back-to-back in a single GPU session with 7-second
+pauses per CLAUDE.md §4. TDMD and LAMMPS runs for the same cell are
+**interleaved** inside the sweep (TDMD 1-3, then LAMMPS 1-3, then
+sleep, then next cell). This cancels the cross-session thermal / clock
+drift the FEAT-EAM report had to caveat against — the ratios in the
+A/B table are apples-to-apples on the same silicon state. LAMMPS is
+stable 2Aug2023u3 from `third_party/lammps/build/lmp`, GPU package in
+mixed precision (`-sf gpu -pk gpu 1`). Step counts match the FEAT-EAM
+report exactly so the TDMD half cross-references back to it.
+
+**Throughput (median of 3, mixed preset, RTX 5080):**
+
+| Potential | Size   |  Atoms | TDMD ts/s | LAMMPS ts/s | TDMD/LAMMPS |
+|-----------|--------|-------:|----------:|------------:|------------:|
+| morse     | tiny   |    256 |    9 955  |    21 120   |    0.47     |
+| morse     | small  |  4 000 |    5 954  |    13 031   |    0.46     |
+| morse     | medium | 32 000 |    4 077  |     3 225   |  **1.26**   |
+| eam       | tiny   |    256 |    4 802  |    13 702   |    0.35     |
+| eam       | small  |  4 000 |    3 288  |     9 455   |    0.35     |
+| eam       | medium | 32 000 |    2 645  |     2 815   |    0.94     |
+
+**Headline:** on the compute-bound cell (medium, 32 k atoms) TDMD's
+Morse path is **26 % faster** than LAMMPS-GPU, and TDMD's EAM path
+closes to 94 % of LAMMPS. On tiny and small, LAMMPS is ~2× faster for
+Morse and ~3× for EAM — these are launch-bound regimes where LAMMPS's
+decade-tuned GPU driver dominates. The crossover pattern (TDMD/LAMMPS
+climbing 0.47 → 0.46 → 1.26 on Morse, 0.35 → 0.35 → 0.94 on EAM) is
+the expected shape for a scheduler that is compute-bound at size and
+launch-bound at tiny scales.
+
+**Physics sanity — force-match at t=0 (mixed preset):**
+
+| Potential | max \|ΔF\| (eV/Å) | rms \|ΔF\| (eV/Å) |
+|-----------|-------------------:|-------------------:|
+| morse     |         5.362e-06  |         4.096e-06  |
+| eam       |         2.676e-06  |         2.200e-06  |
+
+Existing `DeviceLammpsAB.{Morse,Eam}Run0ForceMatch` tests extended to
+print max/rms stats unconditionally (previously silent on pass). Both
+well under `kForceTolerance = 1e-4`.
+
+**Physics sanity — PE match at t=0 (256-atom Cu):**
+
+| Potential | LAMMPS PE (eV) | TDMD PE (eV) |  ΔPE / \|PE\|  |
+|-----------|---------------:|-------------:|---------------:|
+| morse     |    -867.64593  |  -867.645868 |    7.1e-08     |
+| eam       |    -906.29591  |  -906.297363 |    1.6e-06     |
+
+Both in the rounding floor of the mixed-precision sum, exactly as
+ADR 0007 predicts. Morse is ~10⁻⁸ (pairwise sum of ~40 per-atom
+terms). EAM is ~10⁻⁶ (spline interpolation + 3-pass accumulation
+compounds the rounding).
+
+**Artifacts:**
+
+- `benchmarks/phase1_baseline/lammps_ab_phase_c/` — 6 LAMMPS inputs,
+  `run_ab_sweep.sh` driver, `parse_results.py` aggregator, README.
+- `benchmarks/phase1_baseline/lammps_ab_phase_c/results_20260411_014944/`
+  — per-run JSON + LAMMPS logs + stdout for all 36 runs.
+- `docs/05-benchmarks/lammps-ab-results.md` — full report with the
+  three-questions split (throughput vs force-match vs PE-match).
+- `tests/unit/test_device_lammps_ab.cu` — extended with per-stat
+  printouts and a host-side Morse PE sum via the existing half-list
+  + `MorsePair::compute`.
+
+**Tests:** `ctest --preset mixed` → 88/88 passed (force-match values
+captured in the stdout; test count unchanged). `ctest --preset fp64`
+run locally, same 88/88.
+
+**What Phase C explicitly does not claim:**
+
+- Not bit-identical trajectories. Different RNG for velocity init,
+  different nlist orderings, different accumulation orders — step-0
+  agreement does not imply step-N agreement.
+- Not a statement about LAMMPS on KOKKOS backend (`-k on`). Only the
+  GPU package is measured.
+- Not an optimization result. Phase C *measures*; any kernel-fusion
+  or nlist-layout work starts from these numbers as the baseline.
 
 ### Session VL closed
 
