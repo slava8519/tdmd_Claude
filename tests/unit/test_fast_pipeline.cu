@@ -155,8 +155,7 @@ TEST(FastPipelineScheduler, LongNVEDrift) {
 }
 
 TEST(FastPipelineScheduler, KernelLaunchInvariant) {
-  // Sharp ADR 0005 invariant: exactly 5 kernel launches per step,
-  // plus 2 initial launches (zero_forces + force compute before step 1).
+  // Sharp ADR 0005 invariant. See history comment below for evolution.
   std::string data_dir = TDMD_TEST_DATA_DIR;
   SystemState state = io::read_lammps_data(data_dir + "/cu_fcc_256.data");
 
@@ -180,10 +179,12 @@ TEST(FastPipelineScheduler, KernelLaunchInvariant) {
 
   auto stats = sched.stats();
 
-  // 1 initial (force only; no zero after OPT-FUSE-1b) + 3 per step * nsteps.
-  // Per step: fused_kick_drift, morse_force, kick2 = 3.
-  // History: Phase 2 = 5, OPT-FUSE-1a = 4, OPT-FUSE-1b = 3.
-  i64 expected = 1 + 3 * static_cast<i64>(nsteps);
+  // 1 initial (force only; no zero after OPT-FUSE-1b) +
+  //   2 * nsteps (per-step: fused_kick_drift + morse_force) +
+  //   1 finalize half-kick per run_until window (OPT-FUSE-1c).
+  // Per step: 2 launches. History: Phase 2 = 5, OPT-FUSE-1a = 4,
+  // OPT-FUSE-1b = 3, OPT-FUSE-1c = 2 (per step) + 1 (per run_until).
+  i64 expected = 1 + 2 * static_cast<i64>(nsteps) + 1;
   EXPECT_EQ(stats.kernel_launches, expected)
       << "Expected " << expected << " kernel launches for " << nsteps
       << " steps, got " << stats.kernel_launches;

@@ -4,9 +4,10 @@
 // Key differences from PipelineScheduler:
 //   1. No zone state machine, no check_deps, no per-zone launches.
 //   2. One force kernel covers all atoms at once (Morse or EAM 3-pass).
-//   3. Integrator phases (half_kick, drift, force, half_kick) run as
-//      whole-system kernels. 5 launches per Morse step (including
-//      zero_forces); EAM adds two extra passes for density + embedding.
+//   3. Integrator phases (kick_drift, force) run as whole-system kernels.
+//      After OPT-FUSE-1a/1b/1c: 2 launches per Morse step + 1 finalize
+//      half-kick per run_until window; 4 launches per EAM step + 1
+//      finalize half-kick per run_until window.
 //   4. No cudaDeviceSynchronize in the hot loop. All kernels queue on a
 //      dedicated non-default stream and serialize via in-stream ordering.
 //   5. Single cudaStreamSynchronize at the end of run_until().
@@ -53,10 +54,17 @@ struct FastPipelineStats {
 
 /// @brief Batched single-GPU scheduler implementing ADR 0005 Phase 2.
 ///
-/// On each step, runs 5 whole-system kernel launches on a dedicated stream
-/// for Morse (half_kick → drift → zero_forces → morse_force → half_kick) or
-/// 7 for EAM (half_kick → drift → zero_forces → eam_density → eam_embedding
-/// → eam_force → half_kick).
+/// Per-step kernel graph after OPT-FUSE-1a/1b/1c:
+///   Morse step 1 of a run_until window : fused_half_kick_drift → force
+///   Morse steps 2..N of that window    : fused_full_kick_drift → force
+///   After all N steps                  : half_kick (finalize)
+///   EAM adds density + embedding kernels between kick_drift and force,
+///   so each EAM step costs 4 launches instead of 2.
+///
+/// Cross-step fusion collapses the closing kick2 of step k with the
+/// opening kick1 of step k+1 into a single full-dt kick. The finalize
+/// half-kick is issued once per run_until window, not per step, which
+/// leaves velocities at integer time t+N dt before download().
 ///
 /// No zone state machine, no per-zone launches, no cudaDeviceSynchronize
 /// between steps. In-stream ordering guarantees kernel execution order.
@@ -120,16 +128,22 @@ class FastPipelineScheduler {
 
  private:
   /// @brief Dispatch one velocity-Verlet step to the potential-specific
-  /// implementation. Keeps the per-potential hot path in its own
-  /// function so feature work does not smear across step().
-  void step();
+  /// implementation. `first_step_after_bootstrap` is true iff this is the
+  /// first step of the current run_until window — in that case velocities
+  /// are at integer time t and we bootstrap with a half-dt kick; otherwise
+  /// velocities are half-advanced and we apply the cross-step full-dt
+  /// kick (OPT-FUSE-1c).
+  void step(bool first_step_after_bootstrap);
 
-  /// @brief Morse-specific hot path (5 kernel launches).
-  void step_morse();
+  /// @brief Morse-specific hot path: 2 launches per step
+  /// (fused_kick_drift + force). The closing half-kick is lifted out to
+  /// run_until().
+  void step_morse(bool first_step_after_bootstrap);
 
-  /// @brief EAM-specific hot path (7 kernel launches: kick + drift +
-  /// zero + 3 EAM passes + kick).
-  void step_eam();
+  /// @brief EAM-specific hot path: 4 launches per step
+  /// (fused_kick_drift + density + embedding + force). The closing
+  /// half-kick is lifted out to run_until().
+  void step_eam(bool first_step_after_bootstrap);
 
   /// @brief Compute the initial forces once, before the first step.
   /// Runs the full potential pass so velocity Verlet has a valid F at

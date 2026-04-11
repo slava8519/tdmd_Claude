@@ -71,11 +71,22 @@ __global__ void zero_forces_kernel(ForceVec* __restrict__ forces, i32 natoms) {
   forces[i] = ForceVec{0, 0, 0};
 }
 
-// Fused half-kick + drift. Register-resident velocity hand-off: read F, kick
+// Fused kick + drift. Register-resident velocity hand-off: read F, kick
 // velocity into a local, drift position using the local, then write both.
-// Mathematically identical (same op order, same double-precision path) to
-// half_kick_kernel followed by drift_kernel.
-__global__ void fused_half_kick_drift_kernel(
+// Templated on kick duration:
+//   kFullKick=false → kick by dt/2 (half-kick-drift, used as bootstrap
+//                     on the first step of a run_until window).
+//                     Bit-exact equivalent of half_kick_kernel followed
+//                     by drift_kernel — this is the OPT-FUSE-1a contract.
+//   kFullKick=true  → kick by dt (collapses the cross-step pair
+//                     kick2(N-1)+kick1(N) into a single full-dt update).
+//                     Used for every step after the first inside a
+//                     run_until window — this is OPT-FUSE-1c.
+// Both specializations use the identical expression tree except for one
+// compile-time factor, so 1a's bit-exactness guarantee is preserved when
+// the compiler inlines `kFullKick=false`.
+template <bool kFullKick>
+__global__ void fused_kick_drift_kernel(
     VelocityVec* __restrict__ velocities, PositionVec* __restrict__ positions,
     const ForceVec* __restrict__ forces, const i32* __restrict__ types,
     const real* __restrict__ masses, i32 natoms, real dt, Vec3D box_lo,
@@ -84,16 +95,15 @@ __global__ void fused_half_kick_drift_kernel(
   if (i >= natoms) return;
 
   double d_dt = static_cast<double>(dt);
-  double d_half_dt = 0.5 * d_dt;
+  // Kick duration: full dt for cross-step fusion, dt/2 for bootstrap.
+  double kick_dt = kFullKick ? d_dt : (0.5 * d_dt);
   double mass = static_cast<double>(masses[types[i]]);
-  double factor = d_half_dt / (mass * kMvv2e);
+  double factor = kick_dt / (mass * kMvv2e);
 
-  // Half kick — matches half_kick_kernel exactly.
   double vx = velocities[i].x + factor * static_cast<double>(forces[i].x);
   double vy = velocities[i].y + factor * static_cast<double>(forces[i].y);
   double vz = velocities[i].z + factor * static_cast<double>(forces[i].z);
 
-  // Drift — matches drift_kernel exactly, reading velocity from register.
   double px = positions[i].x + d_dt * vx;
   double py = positions[i].y + d_dt * vy;
   double pz = positions[i].z + d_dt * vz;
@@ -165,7 +175,23 @@ void device_fused_half_kick_drift(VelocityVec* d_velocities,
   Vec3D box_size = box.size();
   constexpr int kBlock = 256;
   int grid = (natoms + kBlock - 1) / kBlock;
-  fused_half_kick_drift_kernel<<<grid, kBlock, 0, stream>>>(
+  fused_kick_drift_kernel<false><<<grid, kBlock, 0, stream>>>(
+      d_velocities, d_positions, d_forces, d_types, d_masses, natoms, dt,
+      box.lo, box_size, box.periodic[0], box.periodic[1], box.periodic[2]);
+  TDMD_CUDA_CHECK(cudaGetLastError());
+}
+
+void device_fused_full_kick_drift(VelocityVec* d_velocities,
+                                  PositionVec* d_positions,
+                                  const ForceVec* d_forces,
+                                  const i32* d_types, const real* d_masses,
+                                  i32 natoms, real dt, const Box& box,
+                                  cudaStream_t stream) {
+  if (natoms == 0) return;
+  Vec3D box_size = box.size();
+  constexpr int kBlock = 256;
+  int grid = (natoms + kBlock - 1) / kBlock;
+  fused_kick_drift_kernel<true><<<grid, kBlock, 0, stream>>>(
       d_velocities, d_positions, d_forces, d_types, d_masses, natoms, dt,
       box.lo, box_size, box.periodic[0], box.periodic[1], box.periodic[2]);
   TDMD_CUDA_CHECK(cudaGetLastError());

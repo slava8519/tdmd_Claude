@@ -84,27 +84,36 @@ void FastPipelineScheduler::download(PositionVec* positions,
   d_ids_.copy_to_host(ids, n);
 }
 
-void FastPipelineScheduler::step() {
+void FastPipelineScheduler::step(bool first_step_after_bootstrap) {
   ++stats_.ticks;
   switch (potential_kind_) {
     case PotentialKind::Morse:
-      step_morse();
+      step_morse(first_step_after_bootstrap);
       break;
     case PotentialKind::Eam:
-      step_eam();
+      step_eam(first_step_after_bootstrap);
       break;
   }
   ++current_step_;
   ++steps_since_rebuild_;
 }
 
-void FastPipelineScheduler::step_morse() {
-  // Phase 1+2: fused half-kick + drift. Register-resident velocity hand-off
-  // saves one launch and one HBM round-trip on velocity vs the unfused path;
-  // bit-exact equivalent (OPT-FUSE-1a).
-  integrator::device_fused_half_kick_drift(
-      d_vel_.data(), d_pos_.data(), d_forces_.data(), d_types_.data(),
-      d_masses_.data(), natoms_, cfg_.dt, box_, compute_stream_);
+void FastPipelineScheduler::step_morse(bool first_step_after_bootstrap) {
+  // OPT-FUSE-1c: on the first step of a run_until window, velocities are at
+  // integer time t and we bootstrap with a half-dt kick fused with drift.
+  // On every subsequent step, the closing kick2 of the previous step is
+  // fused with the opening kick1 of the current step into a single full-dt
+  // kick, saving one launch per step. OPT-FUSE-1a register-resident
+  // velocity hand-off still applies inside the fused kernel.
+  if (first_step_after_bootstrap) {
+    integrator::device_fused_half_kick_drift(
+        d_vel_.data(), d_pos_.data(), d_forces_.data(), d_types_.data(),
+        d_masses_.data(), natoms_, cfg_.dt, box_, compute_stream_);
+  } else {
+    integrator::device_fused_full_kick_drift(
+        d_vel_.data(), d_pos_.data(), d_forces_.data(), d_types_.data(),
+        d_masses_.data(), natoms_, cfg_.dt, box_, compute_stream_);
+  }
   ++stats_.kernel_launches;
 
   // Neighbor list rebuild (amortized, every rebuild_every steps).
@@ -113,35 +122,38 @@ void FastPipelineScheduler::step_morse() {
   // tiny stream sync inside it — down from two N-sized round trips.
   maybe_rebuild_nlist();
 
-  // Phase 3: Morse force compute. OPT-FUSE-1b: kernel writes forces with `=`,
-  // no pre-zero needed.
+  // Morse force compute. OPT-FUSE-1b: kernel writes forces with `=`, no
+  // pre-zero needed.
   potentials::compute_morse_gpu(d_pos_.data(), d_forces_.data(),
                                 nlist_.d_neighbors(), nlist_.d_offsets(),
                                 nlist_.d_counts(), natoms_, box_,
                                 morse_params_, nullptr, compute_stream_);
   ++stats_.kernel_launches;
-
-  // Phase 4: second half-kick.
-  integrator::device_half_kick(d_vel_.data(), d_forces_.data(),
-                               d_types_.data(), d_masses_.data(), natoms_,
-                               cfg_.dt, compute_stream_);
-  ++stats_.kernel_launches;
+  // NOTE: second half-kick intentionally absent — lifted to run_until()
+  // as a once-per-window finalize (OPT-FUSE-1c).
 }
 
-void FastPipelineScheduler::step_eam() {
+void FastPipelineScheduler::step_eam(bool first_step_after_bootstrap) {
   assert(eam_ != nullptr && "EAM step invoked without an uploaded DeviceEam");
 
-  // Phase 1+2: fused half-kick + drift (OPT-FUSE-1a).
-  integrator::device_fused_half_kick_drift(
-      d_vel_.data(), d_pos_.data(), d_forces_.data(), d_types_.data(),
-      d_masses_.data(), natoms_, cfg_.dt, box_, compute_stream_);
+  // OPT-FUSE-1c: half-dt bootstrap on first step, full-dt cross-step kick
+  // on every other step. See step_morse() for the rationale.
+  if (first_step_after_bootstrap) {
+    integrator::device_fused_half_kick_drift(
+        d_vel_.data(), d_pos_.data(), d_forces_.data(), d_types_.data(),
+        d_masses_.data(), natoms_, cfg_.dt, box_, compute_stream_);
+  } else {
+    integrator::device_fused_full_kick_drift(
+        d_vel_.data(), d_pos_.data(), d_forces_.data(), d_types_.data(),
+        d_masses_.data(), natoms_, cfg_.dt, box_, compute_stream_);
+  }
   ++stats_.kernel_launches;
 
   maybe_rebuild_nlist();
 
-  // Phase 3: EAM 3-pass (density → embedding → force). Final force pass
-  // writes with `=` (OPT-FUSE-1b), so no pre-zero. Density and embedding
-  // passes write to scratch (rho_, fp_) which compute() owns.
+  // EAM 3-pass (density → embedding → force). Final force pass writes
+  // with `=` (OPT-FUSE-1b), so no pre-zero. Density and embedding passes
+  // write to scratch (rho_, fp_) which compute() owns.
   eam_->compute(d_pos_.data(), d_forces_.data(), d_types_.data(),
                 nlist_.d_neighbors(), nlist_.d_offsets(), nlist_.d_counts(),
                 natoms_, box_, nullptr, compute_stream_);
@@ -149,12 +161,8 @@ void FastPipelineScheduler::step_eam() {
   // up to 2 extra reduction kernels in deterministic mode, which we do
   // not count here because the scheduler does not request energy).
   stats_.kernel_launches += 3;
-
-  // Phase 5: second half-kick.
-  integrator::device_half_kick(d_vel_.data(), d_forces_.data(),
-                               d_types_.data(), d_masses_.data(), natoms_,
-                               cfg_.dt, compute_stream_);
-  ++stats_.kernel_launches;
+  // NOTE: second half-kick intentionally absent — lifted to run_until()
+  // as a once-per-window finalize (OPT-FUSE-1c).
 }
 
 void FastPipelineScheduler::compute_initial_forces() {
@@ -190,8 +198,23 @@ void FastPipelineScheduler::run_until(i32 target_step) {
     initial_forces_computed_ = true;
   }
 
-  while (current_step_ < target_step) {
-    step();
+  // OPT-FUSE-1c: bootstrap on the first step of this window (half-dt kick),
+  // then cross-step full-dt kicks for steps 2..N, then a single finalize
+  // half-kick to bring velocities from t+(N-1/2)dt to t+N dt. The finalize
+  // keeps velocities on integer time at every run_until boundary, so
+  // callers that alternate run_until()/download() — or that call run_until
+  // one step at a time — see exactly the same state they would in the
+  // unfused path.
+  if (current_step_ < target_step) {
+    bool first_step_after_bootstrap = true;
+    while (current_step_ < target_step) {
+      step(first_step_after_bootstrap);
+      first_step_after_bootstrap = false;
+    }
+    integrator::device_half_kick(d_vel_.data(), d_forces_.data(),
+                                 d_types_.data(), d_masses_.data(), natoms_,
+                                 cfg_.dt, compute_stream_);
+    ++stats_.kernel_launches;
   }
 
   // Final sync — the ONLY sync in the entire hot path. Ensures all queued
