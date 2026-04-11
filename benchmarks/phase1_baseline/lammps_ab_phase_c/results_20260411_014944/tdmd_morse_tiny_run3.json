@@ -1,0 +1,20 @@
+{
+  "scheduler": "fast_pipeline",
+  "potential": "morse",
+  "eam_file": "",
+  "data_file": "/home/slava8519/tdmd_С++/tests/data/cu_fcc_256.data",
+  "n_atoms": 256,
+  "n_zones": 0,
+  "n_steps": 5000,
+  "warmup_steps": 500,
+  "deterministic": false,
+  "n_streams": 4,
+  "dt": 0.001000,
+  "wall_clock_s": 0.502261,
+  "timesteps_per_s": 9954.98,
+  "kernel_launches_total": 25000,
+  "kernel_launches_per_step": 5.00,
+  "dep_check_calls": 0,
+  "dep_check_failures": 0,
+  "ticks": 5000
+}

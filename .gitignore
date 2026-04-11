@@ -77,6 +77,9 @@ log.cite
 # …but VerifyLab committed LAMMPS reference dumps are golden references
 # and must be tracked (they're what TDMD is graded against).
 !verifylab/cases/**/*.dump
+# Phase C LAMMPS A/B sweep logs are the authoritative timing source
+# (parse_results.py scrapes the "Loop time" line) — commit them.
+!benchmarks/phase1_baseline/lammps_ab_phase_c/results_*/*.log
 *.lammpstrj
 *.restart
 # Core dump files (not src/core/)

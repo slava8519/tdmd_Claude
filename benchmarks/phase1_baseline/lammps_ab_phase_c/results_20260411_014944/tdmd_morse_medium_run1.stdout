@@ -1,0 +1,14 @@
+Loading: /home/slava8519/tdmd_С++/benchmarks/phase1_baseline/medium.data
+Atoms: 32000  Box: 72.300 x 72.300 x 72.300
+Velocities initialized at T=300 K (seed=42)
+Creating FastPipelineScheduler (Morse)
+Warmup: 100 steps...
+Measuring: 1000 steps...
+
+=== Measurement Results ===
+Scheduler: fast_pipeline  Potential: morse  Atoms: 32000  Zones: 0  Steps: 1000 (warmup: 100)
+Wall clock: 0.246 s
+Timesteps/s: 4064.48
+Kernel launches: 5000 (5.0 per step)
+Ticks: 1000  Dep checks: 0 (failures: 0)
+===========================

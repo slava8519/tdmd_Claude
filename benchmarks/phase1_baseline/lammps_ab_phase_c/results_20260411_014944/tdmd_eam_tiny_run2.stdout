@@ -1,0 +1,16 @@
+Loading: /home/slava8519/tdmd_С++/tests/data/cu_fcc_256.data
+Atoms: 256  Box: 14.460 x 14.460 x 14.460
+Velocities initialized at T=300 K (seed=42)
+Loading EAM: /home/slava8519/tdmd_С++/tests/data/Cu_mishin1.eam.alloy
+EAM: 1 types, cutoff=5.507 A
+Creating FastPipelineScheduler (EAM)
+Warmup: 500 steps...
+Measuring: 5000 steps...
+
+=== Measurement Results ===
+Scheduler: fast_pipeline  Potential: eam  Atoms: 256  Zones: 0  Steps: 5000 (warmup: 500)
+Wall clock: 1.040 s
+Timesteps/s: 4806.42
+Kernel launches: 35000 (7.0 per step)
+Ticks: 5000  Dep checks: 0 (failures: 0)
+===========================

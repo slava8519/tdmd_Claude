@@ -1,0 +1,163 @@
+LAMMPS (2 Aug 2023 - Update 3)
+Reading data file ...
+  orthogonal box = (0 0 0) to (36.15 36.15 36.15)
+  1 by 1 by 1 MPI processor grid
+  reading atoms ...
+  4000 atoms
+  read_data CPU = 0.003 seconds
+Reading eam/alloy potential file ../../../tests/data/Cu_mishin1.eam.alloy with DATE: 2007-10-12
+
+CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE
+
+Your simulation uses code contributions which should be cited:
+- GPU package (short-range, long-range and three-body potentials): doi:10.1016/j.cpc.2010.12.021, doi:10.1016/j.cpc.2011.10.012, doi:10.1016/j.cpc.2013.08.002, doi:10.1016/j.commatsci.2014.10.068, doi:10.1016/j.cpc.2016.10.020, doi:10.3233/APC200086
+The log file lists these citations in BibTeX format.
+
+CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE
+
+
+--------------------------------------------------------------------------
+- Using acceleration for eam/alloy:
+-  with 1 proc(s) per device.
+-  Horizontal vector operations: ENABLED
+-  Shared memory system: No
+--------------------------------------------------------------------------
+Device 0: NVIDIA GeForce RTX 5080, 84 CUs, 15/15 GB, 2.6 GHZ (Mixed Precision)
+--------------------------------------------------------------------------
+
+Initializing Device and compiling on process 0...Done.
+Initializing Device 0 on core 0...Done.
+
+Setting up Verlet run ...
+  Unit style    : metal
+  Current step  : 0
+  Time step     : 0.001
+Per MPI rank memory allocation (min/avg/max) = 2.39 | 2.39 | 2.39 Mbytes
+   Step          Temp          PotEng         KinEng         TotEng    
+         0   300           -14160.873      155.0734      -14005.8      
+       200   161.15394     -14089.085      83.302294     -14005.782    
+Loop time of 0.0218617 on 1 procs for 200 steps with 4000 atoms
+
+Performance: 790.424 ns/day, 0.030 hours/ns, 9148.423 timesteps/s, 36.594 Matom-step/s
+100.0% CPU use with 1 MPI tasks x no OpenMP threads
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 0.017198   | 0.017198   | 0.017198   |   0.0 | 78.67
+Neigh   | 9.52e-07   | 9.52e-07   | 9.52e-07   |   0.0 |  0.00
+Comm    | 0.003282   | 0.003282   | 0.003282   |   0.0 | 15.01
+Output  | 1.3897e-05 | 1.3897e-05 | 1.3897e-05 |   0.0 |  0.06
+Modify  | 0.00086361 | 0.00086361 | 0.00086361 |   0.0 |  3.95
+Other   |            | 0.0005036  |            |       |  2.30
+
+Nlocal:           4000 ave        4000 max        4000 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Nghost:           5841 ave        5841 max        5841 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Neighs:              0 ave           0 max           0 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+
+Total # of neighbors = 0
+Ave neighs/atom = 0
+Neighbor list builds = 20
+Dangerous builds not checked
+
+
+---------------------------------------------------------------------
+      Device Time Info (average): 
+---------------------------------------------------------------------
+Data Transfer:   0.0046 s.
+Neighbor copy:   0.0004 s.
+Neighbor build:  0.0011 s.
+Force calc:      0.0073 s.
+Device Overhead: 0.0027 s.
+Average split:   1.0000.
+Lanes / atom:    4.
+Vector width:    32.
+Prefetch mode:   None.
+Max Mem / Proc:  4.67 MB.
+CPU Neighbor:    0.0011 s.
+CPU Cast/Pack:   0.0017 s.
+CPU Driver_Time: 0.0022 s.
+CPU Idle_Time:   0.0044 s.
+---------------------------------------------------------------------
+
+
+--------------------------------------------------------------------------
+- Using acceleration for eam/alloy:
+-  with 1 proc(s) per device.
+-  Horizontal vector operations: ENABLED
+-  Shared memory system: No
+--------------------------------------------------------------------------
+Device 0: NVIDIA GeForce RTX 5080, 84 CUs, 15/15 GB, 2.6 GHZ (Mixed Precision)
+--------------------------------------------------------------------------
+
+Initializing Device and compiling on process 0...Done.
+Initializing Device 0 on core 0...Done.
+
+Setting up Verlet run ...
+  Unit style    : metal
+  Current step  : 0
+  Time step     : 0.001
+Per MPI rank memory allocation (min/avg/max) = 2.39 | 2.39 | 2.39 Mbytes
+   Step          Temp          PotEng         KinEng         TotEng    
+         0   161.15394     -14089.085      83.302294     -14005.782    
+       200   152.50586     -14084.611      78.832007     -14005.779    
+       400   149.37988     -14082.994      77.21615      -14005.778    
+       600   155.27192     -14086.041      80.261813     -14005.779    
+       800   148.60891     -14082.596      76.817626     -14005.778    
+      1000   154.84187     -14085.818      80.039516     -14005.779    
+      1200   147.41695     -14081.979      76.201488     -14005.777    
+      1400   144.86714     -14080.661      74.883465     -14005.777    
+      1600   152.52142     -14084.618      78.84005      -14005.778    
+      1800   146.19442     -14081.347      75.569548     -14005.778    
+      2000   150.39885     -14083.522      77.742867     -14005.779    
+Loop time of 0.211531 on 1 procs for 2000 steps with 4000 atoms
+
+Performance: 816.901 ns/day, 0.029 hours/ns, 9454.874 timesteps/s, 37.819 Matom-step/s
+99.7% CPU use with 1 MPI tasks x no OpenMP threads
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 0.17222    | 0.17222    | 0.17222    |   0.0 | 81.41
+Neigh   | 7.693e-06  | 7.693e-06  | 7.693e-06  |   0.0 |  0.00
+Comm    | 0.027898   | 0.027898   | 0.027898   |   0.0 | 13.19
+Output  | 0.00010888 | 0.00010888 | 0.00010888 |   0.0 |  0.05
+Modify  | 0.0072727  | 0.0072727  | 0.0072727  |   0.0 |  3.44
+Other   |            | 0.004028   |            |       |  1.90
+
+Nlocal:           4000 ave        4000 max        4000 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Nghost:           5841 ave        5841 max        5841 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Neighs:              0 ave           0 max           0 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+
+Total # of neighbors = 0
+Ave neighs/atom = 0
+Neighbor list builds = 200
+Dangerous builds not checked
+
+
+---------------------------------------------------------------------
+      Device Time Info (average): 
+---------------------------------------------------------------------
+Data Transfer:   0.0466 s.
+Neighbor copy:   0.0023 s.
+Neighbor build:  0.0111 s.
+Force calc:      0.0750 s.
+Device Overhead: 0.0209 s.
+Average split:   1.0000.
+Lanes / atom:    4.
+Vector width:    32.
+Prefetch mode:   None.
+Max Mem / Proc:  4.39 MB.
+CPU Neighbor:    0.0083 s.
+CPU Cast/Pack:   0.0153 s.
+CPU Driver_Time: 0.0152 s.
+CPU Idle_Time:   0.0478 s.
+---------------------------------------------------------------------
+
+Total wall time: 0:00:00

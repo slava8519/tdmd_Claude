@@ -1,0 +1,14 @@
+Loading: /home/slava8519/tdmd_С++/tests/data/cu_fcc_256.data
+Atoms: 256  Box: 14.460 x 14.460 x 14.460
+Velocities initialized at T=300 K (seed=42)
+Creating FastPipelineScheduler (Morse)
+Warmup: 500 steps...
+Measuring: 5000 steps...
+
+=== Measurement Results ===
+Scheduler: fast_pipeline  Potential: morse  Atoms: 256  Zones: 0  Steps: 5000 (warmup: 500)
+Wall clock: 0.502 s
+Timesteps/s: 9957.98
+Kernel launches: 25000 (5.0 per step)
+Ticks: 5000  Dep checks: 0 (failures: 0)
+===========================
