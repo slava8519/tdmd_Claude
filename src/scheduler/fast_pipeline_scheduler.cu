@@ -99,15 +99,12 @@ void FastPipelineScheduler::step() {
 }
 
 void FastPipelineScheduler::step_morse() {
-  // Phase 1: half-kick.
-  integrator::device_half_kick(d_vel_.data(), d_forces_.data(),
-                               d_types_.data(), d_masses_.data(), natoms_,
-                               cfg_.dt, compute_stream_);
-  ++stats_.kernel_launches;
-
-  // Phase 2: drift.
-  integrator::device_drift(d_pos_.data(), d_vel_.data(), natoms_, cfg_.dt,
-                           box_, compute_stream_);
+  // Phase 1+2: fused half-kick + drift. Register-resident velocity hand-off
+  // saves one launch and one HBM round-trip on velocity vs the unfused path;
+  // bit-exact equivalent (OPT-FUSE-1a).
+  integrator::device_fused_half_kick_drift(
+      d_vel_.data(), d_pos_.data(), d_forces_.data(), d_types_.data(),
+      d_masses_.data(), natoms_, cfg_.dt, box_, compute_stream_);
   ++stats_.kernel_launches;
 
   // Phase 3: zero forces.
@@ -137,15 +134,10 @@ void FastPipelineScheduler::step_morse() {
 void FastPipelineScheduler::step_eam() {
   assert(eam_ != nullptr && "EAM step invoked without an uploaded DeviceEam");
 
-  // Phase 1: half-kick.
-  integrator::device_half_kick(d_vel_.data(), d_forces_.data(),
-                               d_types_.data(), d_masses_.data(), natoms_,
-                               cfg_.dt, compute_stream_);
-  ++stats_.kernel_launches;
-
-  // Phase 2: drift.
-  integrator::device_drift(d_pos_.data(), d_vel_.data(), natoms_, cfg_.dt,
-                           box_, compute_stream_);
+  // Phase 1+2: fused half-kick + drift (OPT-FUSE-1a).
+  integrator::device_fused_half_kick_drift(
+      d_vel_.data(), d_pos_.data(), d_forces_.data(), d_types_.data(),
+      d_masses_.data(), natoms_, cfg_.dt, box_, compute_stream_);
   ++stats_.kernel_launches;
 
   // Phase 3: zero forces.
