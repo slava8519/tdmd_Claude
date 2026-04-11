@@ -1,6 +1,6 @@
 # Current milestone status
 
-> **Last updated:** 2026-04-11 (post session OPT-FUSE-1b — zero_forces eliminated)
+> **Last updated:** 2026-04-11 (post session OPT-FUSE-1c — cross-step kick fusion landed)
 
 ## Phase 3 series — COMPLETE (closed in session 3B.closing, hardened in session 3D)
 
@@ -1005,12 +1005,91 @@ medium cell continues to be compute-bound and fusion cannot move it.
 - Does *not* close the launch-bound gap vs LAMMPS. At 3 launches/step
   Morse is still launch-bound on tiny/small. 1c will take it to 2.
 
+## Session OPT-FUSE-1c — cross-step kick2+kick1 fusion (2026-04-11)
+
+**Trigger:** final lever in the intra-/cross-step fusion chain. 1a fused
+`half_kick+drift` (5→4 Morse, 7→6 EAM). 1b eliminated `zero_forces`
+(4→3 Morse, 6→5 EAM). 1c now folds the closing `kick2(N)` of step N and
+the opening `kick1(N+1)` of step N+1 into a single full-dt velocity
+update that lives inside `fused_full_kick_drift`. This is the biggest
+launch-count jump of the chain: Morse 3→2 launches/step, EAM 5→4.
+
+### What landed
+
+- **`device_fused_full_kick_drift`** — new integrator kernel, templated
+  alongside `device_fused_half_kick_drift` via a single
+  `fused_kick_drift_kernel<bool kFullKick>` to preserve the bit-exact
+  contract that 1a established for the half-kick specialization. Full
+  kick multiplies by `dt` instead of `dt/2`, everything else identical.
+- **FastPipelineScheduler state machine** — `run_until` window now has
+  three phases:
+  1. bootstrap: first step of the window runs `fused_half_kick_drift`
+     (v(t) → v(t+dt/2)) + force;
+  2. cross-step loop: steps 2..N run `fused_full_kick_drift` (v(t+(k-1/2)dt)
+     → v(t+(k+1/2)dt)) + force;
+  3. finalize: one `device_half_kick` to bring velocities from
+     v(t+(N-1/2)dt) to v(t+N dt) before return.
+  Eager finalize at every `run_until` boundary means per-step test
+  callers (e.g. `sched.run_until(step)` in a loop) pay the same 3-launch
+  Morse / 5-launch EAM cost as 1b — no regression. Bulk callers
+  (benchmarks, production drivers) save N-1 launches per call.
+- **Launch invariant** — `FastPipelineScheduler.KernelLaunchInvariant`
+  updated to `1 + 2*nsteps + 1` (initial force + per-step kick_drift/force
+  + finalize half-kick) from the 1b `1 + 3*nsteps`.
+
+### Bench — OPT-FUSE-1c vs OPT-FUSE-1b (in-session A/B)
+
+Protocol: save 1c code, `git stash`, rebuild, bench 1b, unstash, rebuild,
+bench 1c, all in one GPU session. Median of 3 runs per cell, 7s pauses
+per CLAUDE.md §4. This is the **only** methodology that yields honest
+numbers — the 1b→out-of-session 1c comparison earlier in this sprint
+showed a false 3–5% regression that was entirely thermal drift.
+
+| Potential | Cell   | 1b tps  | 1c tps  | Δ tps | Δ %    |
+|-----------|--------|---------|---------|-------|--------|
+| Morse     | tiny   | 10636   | 11102   | +466  | +4.4 % |
+| Morse     | small  | 6202    | 6340    | +138  | +2.2 % |
+| Morse     | medium | 4143    | 4219    |  +76  | +1.8 % |
+| EAM       | tiny   | 4918    | 5027    | +110  | +2.2 % |
+| EAM       | small  | 3355    | 3419    |  +64  | +1.9 % |
+| EAM       | medium | 2679    | 2691    |  +12  | +0.5 % |
+
+Wins decay with system size, consistent with the theoretical prediction:
+1c is pure launch-overhead removal (one fewer `half_kick` kernel per
+step), so the benefit is biggest on launch-bound tiny systems and
+smallest on HBM-bound medium EAM where the density+embedding passes
+already dominate. Every cell is positive. No physics sensitivity — NVE
+drift on 10k steps unchanged (|dE/E| ≈ 1e-7 mixed, ≈ 5e-14 EAM).
+
+### What 1c does and does not prove
+
+**Does prove:**
+- The bootstrap/finalize state machine is correct — the `EamNve100StepsStable`
+  test bounces between two `run_until` windows (run_until(1) + run_until(100))
+  and reconstructs E with 4.57e-14 relative drift, which only works if
+  velocities are aligned to integer time at every `run_until` boundary.
+- The `kFullKick` template specialization did not regress the 1a
+  bit-exact contract — `DeviceVelocityVerlet.FusedKickDriftMatchesUnfused`
+  still passes.
+
+**Does not prove:**
+- Does not close the launch-bound gap on medium Morse — at 2 launches/step
+  we are still launch-gated vs LAMMPS's ~1.5 launches/step (they merge
+  kick+drift+force in one kernel for short-range pair). The last launch
+  left to remove is `device_half_kick` for the finalize, which cannot be
+  fused inside `fused_full_kick_drift` without changing the contract
+  (the finalize reads F that was just written by force). That's a job
+  for OPT-FUSE-MULTISTEP K>1 with the zone machine.
+- Does not help the zone scheduler — same caveat as 1b.
+
 ## Next milestone — TBD
 
 Phase 3 closure is a natural pause point. Next milestone selection awaits
 project lead input. Candidates:
-- OPT-FUSE-1c (cross-step full_kick) — the big lever left in the fusion chain (Morse 3→2 launches/step)
-- OPT-INFRA (factor shared host launcher, post-fusion)
+- OPT-INFRA (factor shared host launcher, post-fusion) — the code
+  duplication in step_morse/step_eam around the fused-kick-drift branch
+  is getting visible; a single host-side helper would unify the entry
+  point without touching kernels.
 - Phase 4: neighbor list rebuild optimization
 - M7 kernel fusion K > 1 (gated on M5/M6 zone machine)
 - Multi-rank distributed work (ghost-only exchange)
